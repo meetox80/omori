@@ -726,8 +726,8 @@ void Vm::install_builtins() {
     m1("asin", [](double x) { return std::asin(x); });
     m1("acos", [](double x) { return std::acos(x); });
     m1("atan", [](double x) { return std::atan(x); });
-    math.o->set(atom("PI"), Val::num(M_PI));
-    math.o->set(atom("E"), Val::num(M_E));
+    math.o->set(atom("PI"), Val::num(3.141592653589793));
+    math.o->set(atom("E"), Val::num(2.718281828459045));
     math.o->set(atom("pow"), native([](Vm&, const Val&, std::vector<Val>& a) { return Val::num(std::pow(arg(a, 0).to_num(), arg(a, 1).to_num())); }));
     math.o->set(atom("atan2"), native([](Vm&, const Val&, std::vector<Val>& a) { return Val::num(std::atan2(arg(a, 0).to_num(), arg(a, 1).to_num())); }));
     math.o->set(atom("hypot"), native([](Vm&, const Val&, std::vector<Val>& a) {
