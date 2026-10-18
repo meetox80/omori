@@ -1,0 +1,56 @@
+name: The builder doesn't work
+description: Importing the game or building the EBOOT fails, hangs or gives an error.
+labels: ["bug", "builder"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Don't attach any of the game's files. The log is enough.
+
+  - type: dropdown
+    id: builder
+    attributes:
+      label: Which builder?
+      options:
+        - In the browser (psp-omori.ox80.cc)
+        - Desktop builder on Windows
+        - Desktop builder on macOS
+        - Desktop builder on Linux
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Browser or operating system, with version
+      placeholder: Chrome on Windows 11, Firefox on Arch Linux, Safari on macOS...
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: The error message, or the step where it got stuck and for how long.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: In the browser, open Details under the progress bar and copy everything. On the desktop, copy the builder's output.
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: copy
+    attributes:
+      label: Your copy
+      options:
+        - label: I'm building from my own copy of OMORI 1.0.8 bought on Steam.
+          required: true
+        - label: I'm not attaching any of the game's files.
+          required: true

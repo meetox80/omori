@@ -1,0 +1,92 @@
+name: Something's wrong in the game
+description: A crash, a freeze, a broken map, battle or cutscene, missing sound, anything that plays differently from the PC version.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per issue, please. Don't attach any of the game's files or your EBOOT.PBP.
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Where are you playing?
+      options:
+        - PSP-2000
+        - PSP-3000
+        - PSP Go
+        - PSP Street (E1000)
+        - PPSSPP
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware or PPSSPP version
+      placeholder: 6.61 PRO-C2, ARK-4, PPSSPP 1.18.1 on Android...
+    validations:
+      required: true
+
+  - type: input
+    id: port
+    attributes:
+      label: Port version
+      description: The line starting with "v" under V1.0.8 in the top left of the title screen.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: builder
+    attributes:
+      label: How did you build the EBOOT?
+      options:
+        - In the browser (psp-omori.ox80.cc)
+        - Desktop builder
+        - From source
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: And what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Where in the game?
+      description: The map, battle, cutscene or menu, and what you were doing right before it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Can you make it happen again?
+      description: The steps, if you know them. A save from right before it helps a lot (PSP/GAME/OMORI/saves).
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Attach PSP/GAME/OMORI/log.txt from the memory stick, or paste the end of it here.
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or video
+
+  - type: checkboxes
+    id: copy
+    attributes:
+      label: Your copy
+      options:
+        - label: I built the EBOOT from my own copy of OMORI 1.0.8 bought on Steam.
+          required: true
+        - label: I'm not attaching any of the game's files or my EBOOT.PBP.
+          required: true
