@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" class="bg-paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMORI for PSP</title>
+<meta name="description" content="Build a PSP version of OMORI from your own copy, right in your browser. An unofficial fan project: no OMORI files are hosted or shared here. OMORI is © OMOCAT, LLC.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-paper font-sans text-base/relaxed text-ink awake:font-omori awake:text-[21px] awake:leading-snug">
+<svg class="absolute size-0 overflow-hidden" aria-hidden="true" focusable="false">
+  <filter id="sketch-0"><feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="1"/><feDisplacementMap in="SourceGraphic" scale="7"/></filter>
+  <filter id="sketch-1"><feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="7"/><feDisplacementMap in="SourceGraphic" scale="7"/></filter>
+  <filter id="sketch-2"><feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="13"/><feDisplacementMap in="SourceGraphic" scale="7"/></filter>
+</svg>
+
+<main class="mx-auto max-w-[720px] px-4 pt-10 pb-8 max-sm:pt-6 shivering:animate-shiver motion-reduce:animate-none">
+  <header class="relative">
+    <div id="toggles" class="-mt-6 mb-1 flex justify-end gap-1 text-sm text-dim" hidden>
+      <button id="toggle-sound" class="cursor-pointer px-2 py-1 aria-pressed:text-ink aria-pressed:underline aria-pressed:underline-offset-3 focus-visible:outline-2 focus-visible:outline-dashed" type="button" aria-pressed="true">sound on</button>
+      <button id="toggle-music" class="cursor-pointer px-2 py-1 aria-pressed:text-ink aria-pressed:underline aria-pressed:underline-offset-3 focus-visible:outline-2 focus-visible:outline-dashed" type="button" aria-pressed="false">music off</button>
+    </div>
+    <div id="hero-slot" class="empty:hidden"></div>
+    <h1 class="mb-3 text-[2rem]/tight font-bold tracking-tight max-sm:text-[1.6rem] awake:sr-only">OMORI for PSP</h1>
+    <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>EBOOT.PBP</code> you can play on a PSP or in PPSSPP. It all runs here in your browser, and your game files never leave your computer.</p>
+    <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a PSP-2000, PSP-3000, PSP Go or PSP Street (E1000) with custom firmware, or the PPSSPP emulator. The PSP-1000 doesn't have enough memory, sadly. The EBOOT is big, so keep about 2 GB free on the memory stick. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+  </header>
+
+  <section id="step-game" class="sketch relative mt-6 p-5">
+    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">1</span> Your game</h2>
+    <div id="game-empty">
+      <div id="drop" class="sketch sketch-dashed sketch-clear relative px-4 py-7 text-center data-over:sketch-soft data-over:sketch-solid" tabindex="0">
+        <p class="mb-1.5 text-lg">Drop your game folder or a .zip here</p>
+        <p class="mb-4 text-[0.9rem] text-dim">It's the folder with <code>OMORI.exe</code>, <code>Launch_OMORI.bat</code> and <code>www</code> in it. On Steam, right-click the game, go to Manage and pick Browse local files.</p>
+        <div class="flex flex-wrap justify-center gap-3">
+          <label class="btn btn-primary">Choose folder<input id="pick-folder" type="file" webkitdirectory directory multiple hidden></label>
+          <label class="btn">Choose .zip<input id="pick-zip" type="file" accept=".zip,application/zip" hidden></label>
+        </div>
+      </div>
+    </div>
+    <div id="game-ready" hidden>
+      <p class="flex items-center gap-2.5 text-[1.05rem]"><span class="size-2.5 flex-none rounded-full bg-ink"></span><span id="game-summary"></span></p>
+      <p class="my-3 text-[0.92rem] text-dim">It's saved in this browser, so next time you won't have to pick it again.</p>
+      <div class="flex flex-wrap gap-3">
+        <button id="replace-game" class="btn">Use a different copy</button>
+        <button id="remove-game" class="btn btn-subtle" data-sound="sys_cancel">Remove from this browser</button>
+      </div>
+    </div>
+    <div id="import-status" class="relative mt-3.5 awake:pt-8" hidden>
+      <div class="relative h-3 overflow-hidden rounded-xs border-3 border-ink"><div id="import-bar" class="h-full w-0 bg-ink transition-[width] duration-200"></div></div>
+      <p id="import-text" class="mt-2 text-[0.92rem] text-dim"></p>
+    </div>
+    <p id="game-error" class="mt-3 text-bad" hidden></p>
+  </section>
+
+  <section id="step-build" class="sketch relative mt-6 p-5 before:[animation-delay:-0.35s]">
+    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">2</span> Build</h2>
+    <button id="build" class="btn btn-primary w-full py-3 text-[1.05rem] awake:text-[1.3rem]" disabled>Build EBOOT.PBP</button>
+    <div id="build-status" class="relative mt-3.5 awake:pt-8" hidden>
+      <div class="relative h-3 overflow-hidden rounded-xs border-3 border-ink"><div id="build-bar" class="h-full w-0 bg-ink transition-[width] duration-200"></div></div>
+      <p id="build-text" class="mt-2 text-[0.92rem] text-dim"></p>
+    </div>
+    <details id="log-box" class="mt-3" hidden>
+      <summary class="cursor-pointer text-dim">Details</summary>
+      <pre id="log" class="mt-2 max-h-60 overflow-auto rounded-sm border border-ink bg-soft p-2.5 font-mono text-[0.8rem]/[1.45] whitespace-pre-wrap"></pre>
+    </details>
+    <p id="build-error" class="mt-3 text-bad" hidden></p>
+  </section>
+
+  <section id="step-done" class="sketch relative mt-6 p-5 before:[animation-delay:-0.7s]" hidden>
+    <div id="party" class="-mt-1.5 mb-1.5 flex h-16 gap-0.5 overflow-hidden empty:hidden" aria-hidden="true"></div>
+    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">3</span> Put it on your PSP</h2>
+    <div class="flex flex-wrap gap-3">
+      <button id="download-zip" class="btn btn-primary">Download the PSP folder (.zip)</button>
+      <button id="download-eboot" class="btn">Just the EBOOT.PBP</button>
+    </div>
+    <ol class="my-4 list-decimal space-y-1.5 pl-6">
+      <li>Unzip it into the root of your memory stick so you end up with <code>PSP/GAME/OMORI/EBOOT.PBP</code>.</li>
+      <li>On the PSP, go to Game, then Memory Stick. In PPSSPP, just open the EBOOT.</li>
+      <li>Saves go into <code>PSP/GAME/OMORI/saves</code> and stay there when you update.</li>
+    </ol>
+    <p class="text-[0.92rem] text-dim">Controls: d-pad moves, cross confirms and talks to things, circle or start cancels and opens the menu, triangle tags (switches the party leader), hold square to run. L and R page through lists and do the map shortcuts (Q and W on PC), and select is the game's tab button. The analog stick isn't used.</p>
+  </section>
+
+  <div id="whitespace" class="mt-9 flex justify-center overflow-hidden" hidden></div>
+
+  <footer class="mt-7 space-y-3 text-sm text-dim awake:text-[0.8rem]">
+    <p class="text-ink">Made by kotwicha. The code is on <a href="https://github.com/meetox80/psp-omori" target="_blank" rel="noopener">GitHub</a>.</p>
+    <p>This is an unofficial, non-commercial fan port with its own engine written from scratch. OMORI and everything in it, including its characters, artwork, music, sounds, fonts and writing, is &copy; OMOCAT, LLC. All rights reserved. This project is not affiliated with or endorsed by OMOCAT.</p>
+    <p>This page doesn't host, include or share any of OMORI's files. Once you give it your copy of the game, it borrows a few sprites, sounds, the game's font and some lines of dialogue from that copy to dress itself up. That all happens inside your browser and nothing gets uploaded anywhere.</p>
+  </footer>
+</main>
+
+<dialog id="crack" class="sketch fixed inset-0 m-auto h-fit w-[calc(100%-2rem)] max-w-[480px] overflow-visible bg-transparent p-6 text-ink backdrop:bg-white/80 bs:backdrop:bg-black/80">
+  <h2 class="mb-3.5 text-lg font-bold awake:text-2xl awake:font-normal">Please buy the game</h2>
+  <p>This copy of OMORI looks cracked.</p>
+  <p id="crack-reason" class="my-3 text-[0.92rem] text-dim"></p>
+  <p class="mb-4">You need to own the game to use this port. OMOCAT made it, and buying it on Steam is what lets them keep making games.</p>
+  <div class="flex flex-wrap gap-3">
+    <a id="crack-buy" class="btn btn-primary" href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Buy on Steam</a>
+    <button id="crack-quit" class="btn" data-sound="sys_cancel">Quit</button>
+  </div>
+  <button id="crack-continue" class="btn btn-subtle mt-3 w-full" disabled></button>
+</dialog>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

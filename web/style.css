@@ -1,0 +1,194 @@
+@import "tailwindcss" source(none);
+@source "./index.html";
+@source "./js";
+
+@custom-variant awake (&:where(.awake, .awake *));
+@custom-variant bs (&:where([data-world="bs"], [data-world="bs"] *));
+@custom-variant shivering (&:where([data-shiver] *));
+
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-omori: "OMORI_GAME2", system-ui, sans-serif;
+
+  --animate-boil: boil 1.05s infinite;
+  --animate-bob: bob 0.5s steps(2) infinite;
+  --animate-blink: blink 0.8s steps(2) infinite;
+  --animate-peek: peek 2.6s forwards;
+  --animate-shiver: shiver 0.1s steps(2) 8;
+
+  @keyframes boil {
+    0% {
+      filter: url(#sketch-0);
+    }
+    33.333% {
+      filter: url(#sketch-1);
+    }
+    66.666% {
+      filter: url(#sketch-2);
+    }
+  }
+
+  @keyframes bob {
+    50% {
+      transform: translateX(-3px);
+    }
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes peek {
+    0% {
+      opacity: 0;
+    }
+    8% {
+      opacity: 0.9;
+    }
+    12% {
+      opacity: 0;
+    }
+    18%,
+    72% {
+      opacity: 0.85;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes shiver {
+    50% {
+      transform: translate(1px, -1px);
+    }
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-dim: var(--dim);
+  --color-soft: var(--soft);
+  --color-bad: var(--bad);
+}
+
+:root {
+  --paper: #fff;
+  --ink: #000;
+  --dim: #5a5a5a;
+  --soft: #f1f1f1;
+  --bad: #c0262d;
+  --hand: none;
+  color-scheme: light;
+}
+
+:root[data-world="bs"] {
+  --paper: #000;
+  --ink: #fff;
+  --dim: #a8a8a8;
+  --soft: #161616;
+  --bad: #ff7a7a;
+  color-scheme: dark;
+}
+
+@layer base {
+  a {
+    @apply underline decoration-1 underline-offset-3;
+  }
+
+  code {
+    @apply rounded-sm bg-soft px-1.5 py-px font-mono text-[0.82em] awake:text-[0.68em];
+  }
+}
+
+@utility pixelated {
+  image-rendering: pixelated;
+}
+
+@utility sketch {
+  isolation: isolate;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border: 3px var(--sketch-style, solid) var(--ink);
+    border-radius: 4px;
+    background: var(--sketch-fill, var(--paper));
+    pointer-events: none;
+    filter: url(#sketch-0);
+    animation: var(--animate-boil);
+
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
+    }
+  }
+}
+
+@utility sketch-dashed {
+  --sketch-style: dashed;
+}
+
+@utility sketch-solid {
+  --sketch-style: solid;
+}
+
+@utility sketch-clear {
+  --sketch-fill: transparent;
+}
+
+@utility sketch-soft {
+  --sketch-fill: var(--soft);
+}
+
+@utility sketch-ink {
+  --sketch-fill: var(--ink);
+}
+
+@utility hand {
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: var(--hand-x, -15px);
+    z-index: 2;
+    width: 29px;
+    height: 15px;
+    margin-top: -7px;
+    background: var(--hand) no-repeat;
+    image-rendering: pixelated;
+    animation: var(--animate-bob);
+
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
+    }
+  }
+}
+
+@utility omori-box {
+  background: #000;
+  color: #fff;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 3px #000;
+}
+
+@layer components {
+  .btn {
+    @apply sketch relative inline-block cursor-pointer px-[18px] py-2 text-ink no-underline transition-colors;
+    @apply hover:not-disabled:sketch-soft focus-visible:sketch-soft focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink focus-visible:outline-dashed;
+    @apply disabled:cursor-not-allowed disabled:opacity-40;
+    @apply awake:hover:not-disabled:hand awake:focus-visible:hand;
+  }
+
+  .btn-primary {
+    @apply sketch-ink text-paper hover:not-disabled:sketch-ink focus-visible:sketch-ink;
+  }
+
+  .btn-subtle {
+    @apply sketch-dashed;
+  }
+}

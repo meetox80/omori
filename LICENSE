@@ -1,0 +1,67 @@
+Copyright (c) 2026 kotwicha. All rights reserved.
+
+This repository is public so that people can read the source and follow the project. It is not open source.
+
+You may download, build and run this software for your own personal, non-commercial use. No other rights are
+granted. Without prior written permission from the copyright holder you may not copy, modify, merge, publish,
+distribute, sublicense or sell this software or any part of it, and you may not publish or share builds of it,
+modified or not.
+
+These restrictions exist for one reason: to keep the port from being used to pirate the game or to spread malware.
+Repackaged builds or modified copies could ship the game's content to people who don't own it, or hide harmful code
+behind the port's name. Keeping every release in one place lets players trust that what they download is the real,
+clean builder and that it only works with a copy they bought.
+
+GitHub's Terms of Service allow users to view and fork public repositories on GitHub. A fork made that way does not
+receive any of the rights listed above: it may not be modified, redistributed, released or used outside of that
+GitHub feature.
+
+The EBOOT.PBP files the builder produces contain data from the user's own copy of the game. They are for the personal
+use of the person who owns that copy and may not be shared.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+
+Third-party components
+----------------------
+
+These parts are not covered by the terms above and keep their own licenses:
+
+- tools/builder/third_party/miniz.c, miniz.h: MIT, see tools/builder/third_party/miniz-LICENSE.
+- tools/builder/third_party/stb_image.h, stb_image_write.h, stb_truetype.h and engine/third_party/stb_image.h,
+  stb_image_write.h: MIT or public domain, see the end of each file and engine/third_party/stb-LICENSE.
+- tools/builder/third_party/libvpx: BSD 3-clause with an additional patent grant, see
+  tools/builder/third_party/libvpx/LICENSE and PATENTS.
+- tools/builder/third_party/opus: BSD 3-clause, see tools/builder/third_party/opus/COPYING.
+- tools/builder/third_party/fallback_fonts: Noto Sans, Noto Sans Symbols 2, Noto Sans Math, Noto Sans Arabic and
+  Noto Sans SC, SIL Open Font License 1.1, see tools/builder/third_party/fallback_fonts/OFL.txt.
+- engine/third_party/minimp3.h, minimp3_ex.h: CC0 (public domain), see the top of each file.
+- engine/third_party/compiler-rt-builtins: the double-precision soft-float routines from LLVM compiler-rt 19.1.0,
+  Apache License 2.0 with LLVM Exceptions, see engine/third_party/compiler-rt-builtins/LICENSE.TXT.
+- web/vendor/fflate.js: MIT, see web/vendor/fflate-LICENSE.
+- The RPG Maker MV runtime logic in engine/src/rpg is ported from the RPG Maker MV corescript, used under the
+  following license:
+
+    The MIT License (MIT)
+
+    Copyright (c) 2015 KADOKAWA CORPORATION./YOJI OJIMA
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+    documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+    to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all copies or substantial portions
+    of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+    THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+    CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+    IN THE SOFTWARE.
+
+
+OMORI is (c) OMOCAT, LLC. No game assets are included in this repository; users supply their own copy of the game.
+This project is not affiliated with or endorsed by OMOCAT.
