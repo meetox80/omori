@@ -1,6 +1,7 @@
 _game/
 _deps/
 _work/
+_dist/
 build/
 build-*/
 dist/
