@@ -1,4 +1,4 @@
-<img src="https://cdn.cloudflare.steamstatic.com/steam/apps/1150690/library_hero.jpg" width="100%" alt="Omori, drawn in pencil">
+<img src=".github/header.svg" width="100%" alt="Omori, drawn in pencil">
 
 <h1 align="center">OMORI on the PSP</h1>
 
