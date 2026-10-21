@@ -111,18 +111,94 @@ function movieCount() {
   return Math.max(1, Math.min(MAX_MOVIE_WORKERS, navigator.hardwareConcurrency || 4));
 }
 
+const BUILDER_FILE = "omori-builder.wasm";
+const ENGINES = {
+  psp: { console: "PSP", files: ["EBOOT.PBP"] },
+  vita: { console: "PS Vita", files: ["eboot.bin", "param.sfo"] },
+  "3ds": { console: "3DS", files: ["omori.3dsx"] },
+  wii: { console: "Wii", files: ["omori.dol"] },
+  ps3: { console: "PS3", files: ["EBOOT.BIN"] },
+  ps2: { console: "PS2", files: ["OMORI.ELF"] },
+  xbox360: { console: "Xbox 360", files: ["xenon.elf"] },
+};
+
+function siteFile(path) {
+  return new URL(`../${path}`, import.meta.url);
+}
+
+async function fetchFile(path, onBytes) {
+  const response = await fetch(siteFile(path), { cache: "no-cache" });
+  if (!response.ok) throw new Error(`${path} answered ${response.status}`);
+  const reader = response.body.getReader();
+  const chunks = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    onBytes(value.length);
+  }
+  return new Blob(chunks);
+}
+
+function megabytes(bytes) {
+  return (bytes / 1048576).toFixed(1);
+}
+
 export class Builder {
   constructor() {
     this.worker = null;
     this.module = null;
+    this.sizes = null;
+    this.engines = new Map();
   }
 
-  compile() {
-    this.module ??= WebAssembly.compileStreaming(fetch(new URL("../omori-builder.wasm", import.meta.url), { cache: "no-cache" })).catch((error) => {
-      this.module = null;
-      throw error;
-    });
-    return this.module;
+  fileSizes() {
+    this.sizes ??= fetch(siteFile("files.json"), { cache: "no-cache" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`files.json answered ${response.status}`);
+        return response.json();
+      })
+      .catch((error) => {
+        this.sizes = null;
+        throw error;
+      });
+    return this.sizes;
+  }
+
+  async prepare(target, onProgress) {
+    const { console: name, files } = ENGINES[target];
+    const enginePaths = files.map((file) => `engines/${target}/${file}`);
+    const paths = enginePaths.filter((path) => !this.engines.has(path));
+    if (!this.module) paths.unshift(BUILDER_FILE);
+    if (paths.length > 0) {
+      const sizes = await this.fileSizes();
+      const total = paths.reduce((sum, path) => sum + sizes[path], 0);
+      const what = this.module ? `the ${name} engine` : `the builder and the ${name} engine`;
+      let received = 0;
+      const report = () => onProgress(received / total, `Downloading ${what}: ${megabytes(Math.min(received, total))} of ${megabytes(total)} MB`);
+      report();
+      const blobs = await Promise.all(
+        paths.map((path) =>
+          fetchFile(path, (bytes) => {
+            received += bytes;
+            report();
+          }),
+        ),
+      );
+      paths.forEach((path, index) => {
+        if (path === BUILDER_FILE) return;
+        this.engines.set(path, blobs[index]);
+      });
+      if (!this.module) {
+        onProgress(1, "Getting ready...");
+        try {
+          this.module = await WebAssembly.compile(await blobs[0].arrayBuffer());
+        } catch (error) {
+          throw Object.assign(new Error(String(error?.message ?? error)), { compileFailed: true });
+        }
+      }
+    }
+    return { module: this.module, engine: files.map((file, index) => ({ name: file, blob: this.engines.get(enginePaths[index]) })) };
   }
 
   async run({ gameFiles, env, target, onProgress, onLine }) {
@@ -132,15 +208,17 @@ export class Builder {
       lines.push(line);
       onLine(line);
     };
-    let module;
+    let prepared;
     try {
-      module = await this.compile();
+      prepared = await this.prepare(target, onProgress);
     } catch (error) {
-      return { ok: false, crashed: true, message: String(error?.message ?? error), lines };
+      const message = String(error?.message ?? error);
+      return error?.compileFailed ? { ok: false, crashed: true, message, lines } : { ok: false, downloadFailed: true, message, lines };
     }
+    const { module, engine } = prepared;
     const movies = await this.convertMovies({ module, gameFiles, env, target, onProgress, log });
     if (movies.crackReason) return { ok: false, code: 3, crackReason: movies.crackReason, lines };
-    const result = await this.build({ module, gameFiles, env, target, movies: movies.files, onProgress, log, lines });
+    const result = await this.build({ module, gameFiles, env, target, engine, movies: movies.files, onProgress, log, lines });
     return { ...result, seconds: (performance.now() - started) / 1000 };
   }
 
@@ -218,7 +296,7 @@ export class Builder {
     return { files };
   }
 
-  build({ module, gameFiles, env, target, movies, onProgress, log, lines }) {
+  build({ module, gameFiles, env, target, engine, movies, onProgress, log, lines }) {
     this.worker ??= new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 
     return new Promise((resolve) => {
@@ -264,7 +342,7 @@ export class Builder {
         });
       };
 
-      this.worker.postMessage({ module, gameFiles, env, target, movies });
+      this.worker.postMessage({ module, gameFiles, env, target, engine, movies });
     });
   }
 }

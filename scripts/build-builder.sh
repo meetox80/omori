@@ -31,8 +31,8 @@ builder_flags=(-D_DEFAULT_SOURCE -D_FILE_OFFSET_BITS=64 -DMINIZ_NO_STDIO -DOMORI
 vpx_flags=(-std=c99 -D_DEFAULT_SOURCE -I"$src/third_party/libvpx" -w)
 opus_flags=(-std=c99 -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF -I"$src/third_party/opus/include" -I"$src/third_party/opus/celt"
   -I"$src/third_party/opus/silk" -I"$src/third_party/opus/silk/float" -I"$src/third_party/opus/src" -w)
-mapfile -t vpx_src < <(find "$src/third_party/libvpx" -name '*.c' | sort)
-mapfile -t opus_src < <(find "$src/third_party/opus" -name '*.c' | sort)
+mapfile -t vpx_src <<< "$(find "$src/third_party/libvpx" -name '*.c' | sort)"
+mapfile -t opus_src <<< "$(find "$src/third_party/opus" -name '*.c' | sort)"
 c_src=("$src"/src/*.c "$src/third_party/miniz.c" "$shared"/rx.c "$shared"/js.c "$shared"/node.c "$shared"/buf.c "$shared"/script.c
   "$gen"/embedded_*.c "$gen"/fallback_noto_*.c)
 cpp_src=("$src"/src/*.cpp "$engine_src"/js/value.cpp "$engine_src"/js/vm.cpp "$engine_src"/js/builtins.cpp "$engine_src"/js/random.cpp

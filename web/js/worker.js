@@ -74,13 +74,14 @@ function convertMovie({ module, gameFiles, env, movie, target }) {
   self.postMessage({ type: "done", code, files });
 }
 
-async function build({ module, gameFiles, env, movies, target }) {
+async function build({ module, gameFiles, env, movies, target, engine }) {
   const spec = OUTPUTS[target];
   const output = await openOutput(spec.name);
   try {
     const root = gameDirectory(gameFiles);
     root.addNode(`out/${spec.path}`, new SyncAccessFile(output));
-    const args = ["omori-builder", "/game", ...spec.args];
+    for (const file of engine) root.addFile(`engine/${file.name}`, file.blob);
+    const args = ["omori-builder", "/game", ...spec.args, "--engine", `/engine/${engine[0].name}`];
     if (movies?.length) {
       for (const file of movies) root.addFile(`${MOVIES_DIR}/${file.path}`, file.blob);
       args.push("--movies-from", `/${MOVIES_DIR}`);

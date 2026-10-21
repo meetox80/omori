@@ -181,6 +181,10 @@ function finishBuild(result) {
   }
 
   showBuildProgress(0, "Stopped.", false);
+  if (result.downloadFailed) {
+    setError(ui.buildError, `Couldn't download the builder. Check your connection and build again. (${result.message})`);
+    return;
+  }
   if (result.crashed) {
     setError(ui.buildError, `The build crashed in this browser. Please try a current Chrome, Edge or Firefox. (${result.message})`);
     return;

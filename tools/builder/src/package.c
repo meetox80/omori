@@ -10,6 +10,19 @@
 #include "util.h"
 #include "vpk.h"
 
+typedef struct {
+    const unsigned char* data;
+    size_t size;
+} Blob;
+
+#ifdef OMORI_EXTERNAL_ENGINES
+static Blob embedded(TargetId id) {
+    (void)id;
+    return (Blob){NULL, 0};
+}
+
+static Blob embedded_sfo(void) { return (Blob){NULL, 0}; }
+#else
 extern const unsigned char embedded_psp_eboot[];
 extern const size_t embedded_psp_eboot_size;
 extern const unsigned char embedded_vita_eboot[];
@@ -26,6 +39,22 @@ extern const unsigned char embedded_ps2_elf[];
 extern const size_t embedded_ps2_elf_size;
 extern const unsigned char embedded_xenon_elf[];
 extern const size_t embedded_xenon_elf_size;
+
+static Blob embedded(TargetId id) {
+    switch (id) {
+        case TARGET_PSP: return (Blob){embedded_psp_eboot, embedded_psp_eboot_size};
+        case TARGET_VITA: return (Blob){embedded_vita_eboot, embedded_vita_eboot_size};
+        case TARGET_3DS: return (Blob){embedded_3ds_engine, embedded_3ds_engine_size};
+        case TARGET_WII: return (Blob){embedded_wii_dol, embedded_wii_dol_size};
+        case TARGET_PS3: return (Blob){embedded_ps3_eboot, embedded_ps3_eboot_size};
+        case TARGET_PS2: return (Blob){embedded_ps2_elf, embedded_ps2_elf_size};
+        case TARGET_XENON: return (Blob){embedded_xenon_elf, embedded_xenon_elf_size};
+        default: return (Blob){NULL, 0};
+    }
+}
+
+static Blob embedded_sfo(void) { return (Blob){embedded_vita_sfo, embedded_vita_sfo_size}; }
+#endif
 
 static const char PS3_CONTENT_ID[] = "UP0001-OMRI00001_00-0000000000000000";
 static const char PS3_LICENSE[] = "An unofficial fan port of OMORI with an engine written from scratch, built from your own copy of the game. OMORI is (c) OMOCAT, "
@@ -63,26 +92,8 @@ struct Package {
     uint64_t pack_len;
 };
 
-typedef struct {
-    const unsigned char* data;
-    size_t size;
-} Blob;
-
-static Blob embedded(TargetId id) {
-    switch (id) {
-        case TARGET_PSP: return (Blob){embedded_psp_eboot, embedded_psp_eboot_size};
-        case TARGET_VITA: return (Blob){embedded_vita_eboot, embedded_vita_eboot_size};
-        case TARGET_3DS: return (Blob){embedded_3ds_engine, embedded_3ds_engine_size};
-        case TARGET_WII: return (Blob){embedded_wii_dol, embedded_wii_dol_size};
-        case TARGET_PS3: return (Blob){embedded_ps3_eboot, embedded_ps3_eboot_size};
-        case TARGET_PS2: return (Blob){embedded_ps2_elf, embedded_ps2_elf_size};
-        case TARGET_XENON: return (Blob){embedded_xenon_elf, embedded_xenon_elf_size};
-        default: return (Blob){NULL, 0};
-    }
-}
-
 int package_has_engine(TargetId id) {
-    if (id == TARGET_VITA && !embedded_vita_sfo_size) return 0;
+    if (id == TARGET_VITA && !embedded_sfo().size) return 0;
     return embedded(id).size > 0;
 }
 
@@ -129,12 +140,13 @@ static int load_vita(const char* path, Buf* eboot, Buf* sfo) {
         free(dir);
         if (own) return 1;
     }
-    if (!embedded_vita_sfo_size) {
+    Blob b = embedded_sfo();
+    if (!b.size) {
         fprintf(stderr, "error: this builder was compiled without the Vita param.sfo; put param.sfo next to the --engine file\n");
         buf_free(eboot);
         return 0;
     }
-    buf_put(sfo, embedded_vita_sfo, embedded_vita_sfo_size);
+    buf_put(sfo, b.data, b.size);
     return 1;
 }
 
