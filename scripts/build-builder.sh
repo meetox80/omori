@@ -38,7 +38,7 @@ c_src=("$src"/src/*.c "$src/third_party/miniz.c" "$shared"/rx.c "$shared"/js.c "
 cpp_src=("$src"/src/*.cpp "$engine_src"/js/value.cpp "$engine_src"/js/vm.cpp "$engine_src"/js/builtins.cpp "$engine_src"/js/random.cpp
   "$engine_src"/js/regexp.cpp "$engine_src"/js/compile.cpp "$engine_src"/js/dataview.cpp "$engine_src"/core/value.cpp)
 
-targets=("${@:-x86_64-linux-musl aarch64-linux-musl x86_64-windows-gnu x86_64-macos aarch64-macos}")
+targets=("${@:-x86_64-linux-musl aarch64-linux-musl x86_64-windows-gnu aarch64-windows-gnu x86_64-macos aarch64-macos}")
 for t in ${targets[@]}; do
   name="omori-builder-$t"
   libs="-lm"
