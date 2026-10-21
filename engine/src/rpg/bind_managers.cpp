@@ -274,6 +274,13 @@ void bind_battle_manager() {
     });
 }
 
+Val scene_class(const char* name) {
+    Val v = static_object(name);
+    js::JsObject* o = js::as_object(v);
+    if (o && o->prop("prototype").is_undef()) o->set_prop("prototype", js::make_object());
+    return v;
+}
+
 std::string scene_name_of(const Val& v) {
     StaticObj* so = dynamic_cast<StaticObj*>(js::as_object(v));
     return so ? so->k->name : std::string();
@@ -918,8 +925,8 @@ void bind_managers() {
                                         "Scene_OmoriQuest", "Scene_OmoriPhotoAlbum", "Scene_OmoriItemShop",    "Scene_SlotMachine", "Scene_Gacha",
                                         "Scene_GachaBook", "Scene_OmoriName",      "Scene_OmoriBestiary",    "Scene_SplashScreens", "Scene_Save",
                                         "Scene_Load",      "Scene_Options",        "Scene_Shop"};
-    for (const char* n : scene_names) vm.set_global(n, static_object(n));
-    for (const std::string& n : scene_manager::registered_names()) vm.set_global(n.c_str(), static_object(n.c_str()));
+    for (const char* n : scene_names) vm.set_global(n, scene_class(n));
+    for (const std::string& n : scene_manager::registered_names()) vm.set_global(n.c_str(), scene_class(n.c_str()));
 }
 
 }
