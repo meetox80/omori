@@ -29,6 +29,8 @@ int main(int argc, char** argv) {
     images::set_budget(96u << 20);
 #elif defined(__wii__)
     images::set_budget(28u << 20);
+#elif defined(__WIIU__)
+    images::set_budget(256u << 20);
 #elif defined(__PPU__) || defined(XENON)
     images::set_budget(96u << 20);
 #elif defined(__PS2__)

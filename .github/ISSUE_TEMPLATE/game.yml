@@ -21,8 +21,10 @@ body:
         - Vita3K
         - 3DS or 2DS
         - Azahar
-        - Wii or Wii U
+        - Wii, or Wii U in Wii mode
         - Dolphin
+        - Wii U
+        - Cemu
         - PS3
         - RPCS3
         - PS2
@@ -35,7 +37,7 @@ body:
     id: firmware
     attributes:
       label: Firmware, loader or emulator version
-      placeholder: 6.61 PRO-C2, HENkaku Ensō 3.65, Luma3DS 13.3, Homebrew Channel 1.1.2, Evilnat 4.92, OPL 1.2.0, XeLL Reloaded, PPSSPP 1.18.1...
+      placeholder: 6.61 PRO-C2, HENkaku Ensō 3.65, Luma3DS 13.3, Homebrew Channel 1.1.2, Aroma, Cemu 2.6, Evilnat 4.92, OPL 1.2.0, XeLL Reloaded, PPSSPP 1.18.1...
     validations:
       required: true
 

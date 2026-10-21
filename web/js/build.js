@@ -5,17 +5,17 @@ const PHASES = {
   images: {
     from: 0.5,
     to: 0.88,
-    text: { psp: "Scaling the artwork for the PSP screen", vita: "Converting the artwork", "3ds": "Scaling the artwork for the 3DS screen", wii: "Converting the artwork", ps3: "Converting the artwork", ps2: "Scaling the artwork for the PS2 screen", xbox360: "Converting the artwork" },
+    text: { psp: "Scaling the artwork for the PSP screen", vita: "Converting the artwork", "3ds": "Scaling the artwork for the 3DS screen", wii: "Converting the artwork", wiiu: "Converting the artwork", ps3: "Converting the artwork", ps2: "Scaling the artwork for the PS2 screen", xbox360: "Converting the artwork" },
   },
   audio: {
     from: 0.88,
     to: 0.9,
-    text: { psp: "Copying music and sounds", vita: "Copying music and sounds", "3ds": "Copying music and sounds", wii: "Copying music and sounds", ps3: "Copying music and sounds", ps2: "Converting music and sounds", xbox360: "Copying music and sounds" },
+    text: { psp: "Copying music and sounds", vita: "Copying music and sounds", "3ds": "Copying music and sounds", wii: "Copying music and sounds", wiiu: "Copying music and sounds", ps3: "Copying music and sounds", ps2: "Converting music and sounds", xbox360: "Copying music and sounds" },
   },
   movies: { from: 0.9, to: 0.91, text: "Adding the movies" },
   fonts: { from: 0.91, to: 0.98, text: "Rendering the fonts" },
-  write: { from: 0.98, to: 0.985, text: { psp: "Writing EBOOT.PBP", vita: "Writing the game data", "3ds": "Writing omori.3dsx", wii: "Writing the game data", ps3: "Writing OMORI.pkg", ps2: "Writing OMORI.iso", xbox360: "Writing the game data" } },
-  finish: { from: 0.985, to: 0.99, text: { psp: "Finishing up", vita: "Writing OMORI.vpk", "3ds": "Finishing up", wii: "Writing boot.dol", ps3: "Sealing OMORI.pkg", ps2: "Finishing up", xbox360: "Writing xenon.elf" } },
+  write: { from: 0.98, to: 0.985, text: { psp: "Writing EBOOT.PBP", vita: "Writing the game data", "3ds": "Writing omori.3dsx", wii: "Writing the game data", wiiu: "Writing the game data", ps3: "Writing OMORI.pkg", ps2: "Writing OMORI.iso", xbox360: "Writing the game data" } },
+  finish: { from: 0.985, to: 0.99, text: { psp: "Finishing up", vita: "Writing OMORI.vpk", "3ds": "Finishing up", wii: "Writing boot.dol", wiiu: "Writing omori.wuhb", ps3: "Sealing OMORI.pkg", ps2: "Finishing up", xbox360: "Writing xenon.elf" } },
 };
 const SEALED = { ps3: 0.12 };
 const SPANS = { ps2: { images: { from: 0.5, to: 0.76 }, audio: { from: 0.76, to: 0.9 } } };
@@ -117,6 +117,7 @@ const ENGINES = {
   vita: { console: "PS Vita", files: ["eboot.bin", "param.sfo"] },
   "3ds": { console: "3DS", files: ["omori.3dsx"] },
   wii: { console: "Wii", files: ["omori.dol"] },
+  wiiu: { console: "Wii U", files: ["omori.rpx"] },
   ps3: { console: "PS3", files: ["EBOOT.BIN"] },
   ps2: { console: "PS2", files: ["OMORI.ELF"] },
   xbox360: { console: "Xbox 360", files: ["xenon.elf"] },

@@ -10,6 +10,7 @@
 #include "font.h"
 #include "image.h"
 #include "ps2disc.h"
+#include "wuhb.h"
 
 static char* lower_dup(const char* s) {
     char* r = xstrdup(s);
@@ -761,6 +762,22 @@ int assets_build_hbc_icon(Game* g, Node* atlas, Buf* png) {
     Image* icon = fit_rgb(t.mark, 128, 48, 0xFFFFFF);
     int ok = png_encode(icon, 0, png);
     img_free(icon);
+    title_art_free(&t);
+    return ok;
+}
+
+int assets_build_wiiu_art(Game* g, Node* atlas, Buf* icon, Buf* tv, Buf* drc) {
+    TitleArt t;
+    if (!title_art(g, atlas, &t)) return 0;
+    Image* small = fit_rgb(t.bust, 128, 128, 0xFFFFFF);
+    Image* big = upscale_nearest(t.scene, 3);
+    Image* tv_img = fit_rgb(big, 1280, 720, 0xFFFFFF);
+    Image* drc_img = fit_rgb(big, 854, 480, 0xFFFFFF);
+    int ok = wuhb_tga_gz(small, 1, icon) && wuhb_tga_gz(tv_img, 0, tv) && wuhb_tga_gz(drc_img, 0, drc);
+    img_free(small);
+    img_free(big);
+    img_free(tv_img);
+    img_free(drc_img);
     title_art_free(&t);
     return ok;
 }

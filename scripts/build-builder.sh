@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 zig="${ZIG:-$root/_deps/zig/zig}"
 engines_dir="${ENGINES_DIR:-$root/build}"
 engines=("psp/EBOOT.PBP:embedded_psp_eboot" "vita/eboot.bin:embedded_vita_eboot" "vita/param.sfo:embedded_vita_sfo"
-  "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "ps3/EBOOT.BIN:embedded_ps3_eboot" "ps2/OMORI.ELF:embedded_ps2_elf"
+  "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "wiiu/omori.rpx:embedded_wiiu_rpx" "ps3/EBOOT.BIN:embedded_ps3_eboot" "ps2/OMORI.ELF:embedded_ps2_elf"
   "xenon/xenon.elf:embedded_xenon_elf")
 src="$root/tools/builder"
 shared="$root/shared"

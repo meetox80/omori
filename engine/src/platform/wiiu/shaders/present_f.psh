@@ -1,0 +1,43 @@
+; $MODE = "UniformRegister"
+; $UNIFORM_VARS[0].name = "uSize"
+; $UNIFORM_VARS[0].type = "vec4"
+; $UNIFORM_VARS[0].count = 1
+; $UNIFORM_VARS[0].offset = 0
+; $UNIFORM_VARS[0].block = -1
+; $UNIFORM_VARS[1].name = "uScale"
+; $UNIFORM_VARS[1].type = "vec4"
+; $UNIFORM_VARS[1].count = 1
+; $UNIFORM_VARS[1].offset = 4
+; $UNIFORM_VARS[1].block = -1
+; $SAMPLER_VARS[0].name = "uTexture"
+; $SAMPLER_VARS[0].type = "sampler2D"
+; $SAMPLER_VARS[0].location = 0
+; $NUM_SPI_PS_INPUT_CNTL = 1
+; $SPI_PS_INPUT_CNTL[0].SEMANTIC = 0
+; $SPI_PS_INPUT_CNTL[0].DEFAULT_VAL = 1
+
+00 ALU:
+   0  x: MUL R1.x, R0.x, C0.x
+      y: MUL R1.y, R0.y, C0.y
+   1  x: FLOOR R2.x, PV0.x
+      y: FLOOR R2.y, PV0.y
+   2  x: ADD R1.x, R1.x, -PV1.x
+      y: ADD R1.y, R1.y, -PV1.y
+   3  x: ADD R1.x, PV2.x, -C1.z
+      y: ADD R1.y, PV2.y, -C1.z
+   4  x: MAX R3.x, PV3.x, -C1.y
+      y: MAX R3.y, PV3.y, -C1.y
+   5  x: MIN R3.x, PV4.x, C1.y
+      y: MIN R3.y, PV4.y, C1.y
+   6  x: ADD R3.x, R1.x, -PV5.x
+      y: ADD R3.y, R1.y, -PV5.y
+   7  x: MULADD R3.x, PV6.x, C1.x, C1.z
+      y: MULADD R3.y, PV6.y, C1.x, C1.z
+   8  x: ADD R3.x, R2.x, PV7.x
+      y: ADD R3.y, R2.y, PV7.y
+   9  x: MUL R0.x, PV8.x, C0.z
+      y: MUL R0.y, PV8.y, C0.w
+01 TEX:
+   10 SAMPLE R0, R0.xy0x, t0, s0
+02 EXP_DONE: PIX0, R0.xyz1
+END_OF_PROGRAM

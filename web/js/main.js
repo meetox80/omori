@@ -10,11 +10,11 @@ const ui = Object.fromEntries(
   [
     "drop", "pick-folder", "pick-zip", "game-empty", "game-key", "key-drop", "pick-vdf", "cancel-key", "game-ready", "game-summary", "game-error", "replace-game", "remove-game",
     "import-status", "import-bar", "import-text", "build", "build-status", "build-bar", "build-text",
-    "log-box", "log", "build-error", "step-done", "download-zip", "download-eboot", "download-vita", "download-vpk", "download-3ds", "download-3dsx", "download-wii", "download-ps3", "download-ps2", "download-xbox360",
+    "log-box", "log", "build-error", "step-done", "download-zip", "download-eboot", "download-vita", "download-vpk", "download-3ds", "download-3dsx", "download-wii", "download-wiiu", "download-ps3", "download-ps2", "download-xbox360",
   ].map((id) => [id.replace(/-(\w)/g, (_, c) => c.toUpperCase()), document.getElementById(id)]),
 );
 
-const CONSOLES = { psp: "OMORI for PSP", vita: "OMORI for PS Vita", "3ds": "OMORI for 3DS", wii: "OMORI for Wii", ps3: "OMORI for PS3", ps2: "OMORI for PS2", xbox360: "OMORI for Xbox 360" };
+const CONSOLES = { psp: "OMORI for PSP", vita: "OMORI for PS Vita", "3ds": "OMORI for 3DS", wii: "OMORI for Wii", wiiu: "OMORI for Wii U", ps3: "OMORI for PS3", ps2: "OMORI for PS2", xbox360: "OMORI for Xbox 360" };
 const CONSOLE_KEY = "omori-console";
 
 const state = {
@@ -317,6 +317,10 @@ function downloadWii() {
   return downloadBundle("OMORI-Wii.zip");
 }
 
+function downloadWiiu() {
+  return downloadBundle("OMORI-WiiU.zip");
+}
+
 function downloadXbox360() {
   return downloadBundle("OMORI-Xbox360.zip");
 }
@@ -419,6 +423,7 @@ function setUpControls() {
   ui.download3ds.addEventListener("click", download3ds);
   ui.download3dsx.addEventListener("click", download3dsx);
   ui.downloadWii.addEventListener("click", downloadWii);
+  ui.downloadWiiu.addEventListener("click", downloadWiiu);
   ui.downloadPs3.addEventListener("click", downloadPs3);
   ui.downloadPs2.addEventListener("click", downloadPs2);
   ui.downloadXbox360.addEventListener("click", downloadXbox360);

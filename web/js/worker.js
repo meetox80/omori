@@ -10,6 +10,7 @@ const OUTPUTS = {
     args: ["--target", "wii", "-o", "/out"],
     extras: ["apps/omori/boot.dol", "apps/omori/meta.xml", "apps/omori/icon.png"],
   },
+  wiiu: { name: "omori.pak", path: "wiiu/apps/omori/omori.pak", args: ["--target", "wiiu", "-o", "/out"], extras: ["wiiu/apps/omori/omori.wuhb"] },
   ps3: { name: "OMORI.pkg", path: "OMORI.pkg", args: ["--target", "ps3", "-o", "/out/OMORI.pkg"], extras: [], zipped: false },
   ps2: { name: "OMORI.iso", path: "OMORI.iso", args: ["--target", "ps2", "-o", "/out/OMORI.iso"], extras: [], zipped: false },
   xbox360: { name: "omori.pak", path: "omori/omori.pak", args: ["--target", "xbox360", "-o", "/out"], extras: ["xenon.elf"], split: true },

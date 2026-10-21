@@ -21,14 +21,14 @@ typedef struct {
 } Phase;
 
 static const Phase PHASES[] = {
-    {"database", "Reading the game's data", {11, 11, 11, 11, 11, 11, 11}},
-    {"maps", "Converting maps and events", {3, 3, 3, 3, 3, 3, 3}},
-    {"images", NULL, {13, 15, 12, 15, 15, 12, 15}},
-    {"audio", "Copying music and sounds", {1, 1, 1, 1, 1, 14, 1}},
-    {"movies", "Converting the movies", {63, 43, 60, 43, 43, 60, 43}},
-    {"fonts", "Rendering the fonts", {7, 26, 6, 26, 26, 6, 26}},
-    {"write", NULL, {1, 0.5, 1, 0.5, 0.5, 1, 0.5}},
-    {"finish", NULL, {0, 0.5, 0, 0.5, 6, 0, 0.5}},
+    {"database", "Reading the game's data", {11, 11, 11, 11, 11, 11, 11, 11}},
+    {"maps", "Converting maps and events", {3, 3, 3, 3, 3, 3, 3, 3}},
+    {"images", NULL, {13, 15, 12, 15, 15, 15, 12, 15}},
+    {"audio", "Copying music and sounds", {1, 1, 1, 1, 1, 1, 14, 1}},
+    {"movies", "Converting the movies", {63, 43, 60, 43, 43, 43, 60, 43}},
+    {"fonts", "Rendering the fonts", {7, 26, 6, 26, 26, 26, 6, 26}},
+    {"write", NULL, {1, 0.5, 1, 0.5, 0.5, 0.5, 1, 0.5}},
+    {"finish", NULL, {0, 0.5, 0, 0.5, 0.5, 6, 0, 0.5}},
 };
 
 #define PHASE_COUNT ((int)(sizeof(PHASES) / sizeof(PHASES[0])))

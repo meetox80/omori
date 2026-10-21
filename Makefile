@@ -5,6 +5,7 @@ PS3DEV ?= $(CURDIR)/_deps/ps3dev
 PS2DEV ?= $(CURDIR)/_deps/ps2dev
 DEVKITXENON ?= $(CURDIR)/_deps/xenon
 VITA3K ?= $(CURDIR)/_deps/vita3k/Vita3K
+CEMU ?= $(CURDIR)/_deps/cemu/Cemu
 ZIG ?= $(CURDIR)/_deps/zig/zig
 WASI_SDK ?= $(CURDIR)/_deps/wasi-sdk
 TAILWIND ?= $(CURDIR)/_deps/tailwindcss
@@ -26,12 +27,13 @@ export DEVKITPPC := $(DEVKITPRO)/devkitPPC
 export PATH := $(PSPDEV)/bin:$(VITASDK)/bin:$(DEVKITARM)/bin:$(DEVKITPPC)/bin:$(DEVKITPRO)/tools/bin:$(PS3DEV)/bin:$(PS3DEV)/ppu/bin:$(PS2DEV)/bin:$(PS2DEV)/ee/bin:$(PS2DEV)/iop/bin:$(PS2SDK)/bin:$(PATH)
 
 BUILDER := build/builder-native/omori-builder
-CONSOLES := psp vita 3ds wii ps3 ps2 xbox360
+CONSOLES := psp vita 3ds wii wiiu ps3 ps2 xbox360
 
 PLAY_psp := PSP/GAME/OMORI/EBOOT.PBP
 PLAY_vita := data/OMORI/omori.pak
 PLAY_3ds := 3ds/omori/omori.3dsx
 PLAY_wii := apps/omori/omori.pak
+PLAY_wiiu := wiiu/apps/omori/omori.pak
 PLAY_ps3 := omori.pak
 PLAY_ps2 := omori.pak
 PLAY_xbox360 := omori/omori.pak
@@ -39,7 +41,7 @@ PROFILE_xbox360 := xenon
 RUN_ps3 := --pak "$(OUT)/omori.pak"
 RUN_ps2 := --pak "$(OUT)/omori.pak"
 
-.PHONY: all help engines $(CONSOLES) psp-toolchain vita-toolchain 3ds-toolchain wii-toolchain ps3-toolchain ps2-toolchain xbox360-toolchain vita3k zig wasi-sdk tailwind vita-shaders ps3-shaders xbox360-shaders desktop \
+.PHONY: all help engines $(CONSOLES) psp-toolchain vita-toolchain 3ds-toolchain wii-toolchain wiiu-toolchain ps3-toolchain ps2-toolchain xbox360-toolchain vita3k cemu zig wasi-sdk tailwind vita-shaders wiiu-shaders ps3-shaders xbox360-shaders desktop \
 	builder test run play \
 	release web web-serve clean
 
@@ -52,6 +54,7 @@ help:
 	@echo "make vita           build the Vita engine (build/vita/eboot.bin and param.sfo)"
 	@echo "make 3ds            build the 3DS engine (build/3ds/omori.3dsx)"
 	@echo "make wii            build the Wii engine (build/wii/omori.dol)"
+	@echo "make wiiu           build the Wii U engine (build/wiiu/omori.rpx)"
 	@echo "make ps3            build the PS3 engine (build/ps3/EBOOT.BIN)"
 	@echo "make ps2            build the PS2 engine (build/ps2/OMORI.ELF)"
 	@echo "make xbox360        build the Xbox 360 engine (build/xenon/xenon.elf)"
@@ -59,11 +62,14 @@ help:
 	@echo "make vita-toolchain download vitasdk into _deps/vitasdk"
 	@echo "make 3ds-toolchain  download devkitARM, libctru, citro3d and the 3DS portlibs into _deps/devkitpro"
 	@echo "make wii-toolchain  download devkitPPC, libogc and the Wii portlibs into _deps/devkitpro"
+	@echo "make wiiu-toolchain download devkitPPC, wut and the Wii U portlibs into _deps/devkitpro"
 	@echo "make ps3-toolchain  download the ps3dev toolchain and build PSL1GHT, zlib, libogg and libvorbis into _deps/ps3dev"
 	@echo "make ps2-toolchain  download the ps2dev toolchain into _deps/ps2dev"
 	@echo "make xbox360-toolchain build the libxenon toolchain, zlib, libogg, libvorbis and libfat into _deps/xenon"
 	@echo "make vita3k         download the Vita3K emulator into _deps/vita3k (used by make vita-shaders)"
+	@echo "make cemu           download the Cemu emulator into _deps/cemu, with its SD card in _deps/cemu/portable/sdcard"
 	@echo "make vita-shaders   recompile the Vita shaders into engine/src/platform/vita/shaders"
+	@echo "make wiiu-shaders   assemble the Wii U shaders in engine/src/platform/wiiu/shaders (builds latte-assembler into _deps/decaf)"
 	@echo "make ps3-shaders    recompile the PS3 shaders into engine/src/platform/ps3/shaders (downloads the Cg compiler into _deps/cg)"
 	@echo "make xbox360-shaders assemble the Xbox 360 shaders in engine/src/platform/xenon/shaders"
 	@echo "make zig            download zig into _deps/zig (used by make release)"
@@ -99,6 +105,11 @@ wii-toolchain: $(DEVKITPRO)/.complete-wii
 $(DEVKITPRO)/.complete-wii:
 	./scripts/setup-devkitpro.sh wii
 
+wiiu-toolchain: $(DEVKITPRO)/.complete-wiiu
+
+$(DEVKITPRO)/.complete-wiiu:
+	./scripts/setup-devkitpro.sh wiiu
+
 ps3-toolchain: $(PS3DEV)/portlibs/ppu/lib/libvorbisfile.a
 
 $(PS3DEV)/portlibs/ppu/lib/libvorbisfile.a:
@@ -118,6 +129,11 @@ vita3k: $(VITA3K)
 
 $(VITA3K):
 	./scripts/setup-vita3k.sh
+
+cemu: $(CEMU)
+
+$(CEMU):
+	./scripts/setup-cemu.sh
 
 zig: $(ZIG)
 
@@ -152,6 +168,10 @@ wii: wii-toolchain
 	cmake -S engine -B build/wii -DCMAKE_TOOLCHAIN_FILE=$(DEVKITPRO)/cmake/Wii.cmake -DCMAKE_BUILD_TYPE=Release
 	cmake --build build/wii -j$(JOBS)
 
+wiiu: wiiu-toolchain
+	cmake -S engine -B build/wiiu -DCMAKE_TOOLCHAIN_FILE=$(DEVKITPRO)/cmake/WiiU.cmake -DCMAKE_BUILD_TYPE=Release
+	cmake --build build/wiiu -j$(JOBS)
+
 ps3: ps3-toolchain
 	cmake -S engine -B build/ps3 -DCMAKE_TOOLCHAIN_FILE=$(CURDIR)/engine/cmake/ps3.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
 	cmake --build build/ps3 -j$(JOBS)
@@ -166,6 +186,9 @@ xbox360: xbox360-toolchain
 
 vita-shaders: vita-toolchain vita3k
 	./scripts/build-shaders.sh
+
+wiiu-shaders:
+	./scripts/build-wiiu-shaders.sh
 
 ps3-shaders: ps3-toolchain
 	./scripts/build-ps3-shaders.sh

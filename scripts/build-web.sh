@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 sdk="${WASI_SDK:-$root/_deps/wasi-sdk}"
 tailwind="${TAILWIND:-$root/_deps/tailwindcss}"
 engines_dir="${ENGINES_DIR:-$root/build}"
-engines=("psp/EBOOT.PBP:psp" "vita/eboot.bin:vita" "vita/param.sfo:vita" "3ds/omori.3dsx:3ds" "wii/omori.dol:wii" "ps3/EBOOT.BIN:ps3"
+engines=("psp/EBOOT.PBP:psp" "vita/eboot.bin:vita" "vita/param.sfo:vita" "3ds/omori.3dsx:3ds" "wii/omori.dol:wii" "wiiu/omori.rpx:wiiu" "ps3/EBOOT.BIN:ps3"
   "ps2/OMORI.ELF:ps2" "xenon/xenon.elf:xbox360")
 src="$root/tools/builder"
 shared="$root/shared"

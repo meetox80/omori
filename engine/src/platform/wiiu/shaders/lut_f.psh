@@ -1,0 +1,31 @@
+; $MODE = "UniformRegister"
+; $UNIFORM_VARS[0].name = "uLutCoord"
+; $UNIFORM_VARS[0].type = "vec4"
+; $UNIFORM_VARS[0].count = 1
+; $UNIFORM_VARS[0].offset = 0
+; $UNIFORM_VARS[0].block = -1
+; $SAMPLER_VARS[0].name = "uTexture"
+; $SAMPLER_VARS[0].type = "sampler2D"
+; $SAMPLER_VARS[0].location = 0
+; $SAMPLER_VARS[1].name = "uLut"
+; $SAMPLER_VARS[1].type = "sampler2D"
+; $SAMPLER_VARS[1].location = 1
+; $NUM_SPI_PS_INPUT_CNTL = 2
+; $SPI_PS_INPUT_CNTL[0].SEMANTIC = 0
+; $SPI_PS_INPUT_CNTL[0].DEFAULT_VAL = 1
+; $SPI_PS_INPUT_CNTL[1].SEMANTIC = 2
+; $SPI_PS_INPUT_CNTL[1].DEFAULT_VAL = 1
+
+00 TEX:
+   0  SAMPLE R0, R0.xy0x, t0, s0
+01 ALU:
+   1  x: DOT4 R2.x, R0.x, R1.x
+      y: DOT4 ____, R0.y, R1.y
+      z: DOT4 ____, R0.z, R1.z
+      w: DOT4 ____, R0.w, R1.w
+   2  x: MULADD R2.x, PV1.x, C0.x, C0.y
+      y: MOV R2.y, C0.w
+02 TEX:
+   3  SAMPLE R0, R2.xy0x, t1, s1
+03 EXP_DONE: PIX0, R0.xyzw
+END_OF_PROGRAM

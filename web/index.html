@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OMORI for consoles</title>
-<meta name="description" content="Build OMORI for the PSP, PS Vita, 3DS, Wii, PS3, PS2 or Xbox 360 from your own copy, right in your browser. An unofficial fan project: no OMORI files are hosted or shared here. OMORI is © OMOCAT, LLC.">
+<meta name="description" content="Build OMORI for the PSP, PS Vita, 3DS, Wii, Wii U, PS3, PS2 or Xbox 360 from your own copy, right in your browser. An unofficial fan project: no OMORI files are hosted or shared here. OMORI is © OMOCAT, LLC.">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
@@ -23,7 +23,7 @@
       <button id="toggle-music" class="cursor-pointer px-2 py-1 aria-pressed:text-ink aria-pressed:underline aria-pressed:underline-offset-3 focus-visible:outline-2 focus-visible:outline-dashed" type="button" aria-pressed="false">music off</button>
     </div>
     <div id="hero-slot" class="empty:hidden"></div>
-    <h1 class="mb-3 text-[2rem]/tight font-bold tracking-tight max-sm:text-[1.6rem] awake:sr-only"><span data-console="psp">OMORI for PSP</span><span data-console="vita" hidden>OMORI for PS Vita</span><span data-console="3ds" hidden>OMORI for 3DS</span><span data-console="wii" hidden>OMORI for Wii</span><span data-console="ps3" hidden>OMORI for PS3</span><span data-console="ps2" hidden>OMORI for PS2</span><span data-console="xbox360" hidden>OMORI for Xbox 360</span></h1>
+    <h1 class="mb-3 text-[2rem]/tight font-bold tracking-tight max-sm:text-[1.6rem] awake:sr-only"><span data-console="psp">OMORI for PSP</span><span data-console="vita" hidden>OMORI for PS Vita</span><span data-console="3ds" hidden>OMORI for 3DS</span><span data-console="wii" hidden>OMORI for Wii</span><span data-console="wiiu" hidden>OMORI for Wii U</span><span data-console="ps3" hidden>OMORI for PS3</span><span data-console="ps2" hidden>OMORI for PS2</span><span data-console="xbox360" hidden>OMORI for Xbox 360</span></h1>
     <div data-console="psp">
       <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>EBOOT.PBP</code> you can play on a PSP or in PPSSPP. It all runs here in your browser, and your game files never leave your computer.</p>
       <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a PSP-2000, PSP-3000, PSP Go or PSP Street (E1000) with custom firmware, or the PPSSPP emulator. The PSP-1000 doesn't have enough memory, sadly. The EBOOT is big, so keep about 2 GB free on the memory stick. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
@@ -39,6 +39,10 @@
     <div data-console="wii" hidden>
       <p class="mb-2 text-[1.05rem]">Turn your copy of the game into an <code>apps/omori</code> folder for the Homebrew Channel, with the game's full-size artwork at the Wii's own 640x480. It all runs here in your browser, and your game files never leave your computer.</p>
       <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a Wii or Wii U (in Wii mode) with the Homebrew Channel, or the Dolphin emulator. Keep about 2.5 GB free on a FAT32 SD card or USB drive. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="wiiu" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into a <code>wiiu/apps/omori</code> folder for the Wii U Menu, with the game's full-size artwork scaled sharply up to your TV and shown on the GamePad too. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a Wii U running Aroma, or the Cemu emulator. Keep about 2.5 GB free on the SD card. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
     </div>
     <div data-console="ps3" hidden>
       <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>OMORI.pkg</code> you install from the PS3's XMB, with the game's full-size artwork scaled sharply up to your TV, up to 1080p. It all runs here in your browser, and your game files never leave your computer.</p>
@@ -105,12 +109,13 @@
         <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PS Vita<input class="sr-only" type="radio" name="console" value="vita"></label>
         <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">3DS<input class="sr-only" type="radio" name="console" value="3ds"></label>
         <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">Wii<input class="sr-only" type="radio" name="console" value="wii"></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">Wii U<input class="sr-only" type="radio" name="console" value="wiiu"></label>
         <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PS3<input class="sr-only" type="radio" name="console" value="ps3"></label>
         <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PS2<input class="sr-only" type="radio" name="console" value="ps2"></label>
         <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">Xbox 360<input class="sr-only" type="radio" name="console" value="xbox360"></label>
       </div>
     </fieldset>
-    <button id="build" class="btn btn-primary w-full py-3 text-[1.05rem] awake:text-[1.3rem]" disabled><span data-console="psp">Build EBOOT.PBP</span><span data-console="vita" hidden>Build for PS Vita</span><span data-console="3ds" hidden>Build omori.3dsx</span><span data-console="wii" hidden>Build for Wii</span><span data-console="ps3" hidden>Build OMORI.pkg</span><span data-console="ps2" hidden>Build OMORI.iso</span><span data-console="xbox360" hidden>Build for Xbox 360</span></button>
+    <button id="build" class="btn btn-primary w-full py-3 text-[1.05rem] awake:text-[1.3rem]" disabled><span data-console="psp">Build EBOOT.PBP</span><span data-console="vita" hidden>Build for PS Vita</span><span data-console="3ds" hidden>Build omori.3dsx</span><span data-console="wii" hidden>Build for Wii</span><span data-console="wiiu" hidden>Build for Wii U</span><span data-console="ps3" hidden>Build OMORI.pkg</span><span data-console="ps2" hidden>Build OMORI.iso</span><span data-console="xbox360" hidden>Build for Xbox 360</span></button>
     <div id="build-status" class="relative mt-3.5 awake:pt-8" hidden>
       <div class="relative h-3 overflow-hidden rounded-xs border-3 border-ink"><div id="build-bar" class="h-full w-0 bg-ink transition-[width] duration-200"></div></div>
       <p id="build-text" class="mt-2 text-[0.92rem] text-dim"></p>
@@ -124,7 +129,7 @@
 
   <section id="step-done" class="sketch relative mt-6 p-5 before:[animation-delay:-0.7s]" hidden>
     <div id="party" class="-mt-1.5 mb-1.5 flex h-16 gap-0.5 overflow-hidden empty:hidden" aria-hidden="true"></div>
-    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">3</span> <span data-console="psp">Put it on your PSP</span><span data-console="vita" hidden>Put it on your Vita</span><span data-console="3ds" hidden>Put it on your 3DS</span><span data-console="wii" hidden>Put it on your Wii</span><span data-console="ps3" hidden>Put it on your PS3</span><span data-console="ps2" hidden>Put it on your PS2</span><span data-console="xbox360" hidden>Put it on your Xbox 360</span></h2>
+    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">3</span> <span data-console="psp">Put it on your PSP</span><span data-console="vita" hidden>Put it on your Vita</span><span data-console="3ds" hidden>Put it on your 3DS</span><span data-console="wii" hidden>Put it on your Wii</span><span data-console="wiiu" hidden>Put it on your Wii U</span><span data-console="ps3" hidden>Put it on your PS3</span><span data-console="ps2" hidden>Put it on your PS2</span><span data-console="xbox360" hidden>Put it on your Xbox 360</span></h2>
     <div data-console="psp">
       <div class="flex flex-wrap gap-3">
         <button id="download-zip" class="btn btn-primary">Download the PSP folder (.zip)</button>
@@ -172,6 +177,17 @@
         <li>Saves go into <code>apps/omori/saves</code> and stay there when you update.</li>
       </ol>
       <p class="text-[0.92rem] text-dim">Controls: hold the Wii Remote sideways; the d-pad moves, 2 confirms and talks to things, 1 cancels, A tags (switches the party leader), hold B to run, + opens the menu and − is the game's tab button. With a Classic Controller or GameCube controller: A confirms, B cancels, X tags, hold Y to run, L and R page through lists, + or START opens the menu, − or Z is tab. HOME goes back to the Homebrew Channel.</p>
+    </div>
+    <div data-console="wiiu" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-wiiu" class="btn btn-primary">Download the wiiu folder (.zip)</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Unzip it into the root of your SD card so you end up with <code>wiiu/apps/omori/omori.wuhb</code> and <code>wiiu/apps/omori/omori.pak</code>.</li>
+        <li>OMORI shows up on the Wii U Menu; start it from there. In Cemu, put the folder on its SD card the same way and open <code>omori.wuhb</code> with File, then Load.</li>
+        <li>Saves go into <code>wiiu/apps/omori/saves</code> and stay there when you update.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: on the GamePad, Pro Controller or Classic Controller, the d-pad or left stick moves, A confirms and talks to things, B cancels, X tags (switches the party leader), hold Y to run. L and R (or ZL and ZR) page through lists and do the map shortcuts (Q and W on PC), + opens the menu and − is the game's tab button. A Wii Remote held sideways works too: 2 confirms, 1 cancels, A tags, hold B to run. HOME opens the HOME Menu, where you can quit.</p>
     </div>
     <div data-console="ps3" hidden>
       <div class="flex flex-wrap gap-3">

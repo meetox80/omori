@@ -9,6 +9,7 @@
 #include "ps3pkg.h"
 #include "util.h"
 #include "vpk.h"
+#include "wuhb.h"
 
 typedef struct {
     const unsigned char* data;
@@ -33,6 +34,8 @@ extern const unsigned char embedded_3ds_engine[];
 extern const size_t embedded_3ds_engine_size;
 extern const unsigned char embedded_wii_dol[];
 extern const size_t embedded_wii_dol_size;
+extern const unsigned char embedded_wiiu_rpx[];
+extern const size_t embedded_wiiu_rpx_size;
 extern const unsigned char embedded_ps3_eboot[];
 extern const size_t embedded_ps3_eboot_size;
 extern const unsigned char embedded_ps2_elf[];
@@ -46,6 +49,7 @@ static Blob embedded(TargetId id) {
         case TARGET_VITA: return (Blob){embedded_vita_eboot, embedded_vita_eboot_size};
         case TARGET_3DS: return (Blob){embedded_3ds_engine, embedded_3ds_engine_size};
         case TARGET_WII: return (Blob){embedded_wii_dol, embedded_wii_dol_size};
+        case TARGET_WIIU: return (Blob){embedded_wiiu_rpx, embedded_wiiu_rpx_size};
         case TARGET_PS3: return (Blob){embedded_ps3_eboot, embedded_ps3_eboot_size};
         case TARGET_PS2: return (Blob){embedded_ps2_elf, embedded_ps2_elf_size};
         case TARGET_XENON: return (Blob){embedded_xenon_elf, embedded_xenon_elf_size};
@@ -89,6 +93,8 @@ struct Package {
     Buf elf;
     Buf icon_sys;
     Buf icon_icn;
+    Buf rpx;
+    Wuhb wuhb;
     uint64_t pack_len;
 };
 
@@ -168,6 +174,10 @@ static void ps3_sfo(Buf* out) {
     sfo_write(e, (int)(sizeof(e) / sizeof(e[0])), out);
 }
 
+static int wiiu_rpx_check(const uint8_t* d, size_t len) {
+    return len >= 52 && !memcmp(d, "\x7f" "ELF", 4) && d[4] == 1 && d[5] == 2 && d[7] == 0xCA && d[8] == 0xFE && d[18] == 0 && d[19] == 20;
+}
+
 static int xenon_elf_check(const uint8_t* d, size_t len) {
     return len >= 52 && !memcmp(d, "\x7f" "ELF", 4) && d[4] == 1 && d[5] == 2 && d[18] == 0 && d[19] == 20;
 }
@@ -212,6 +222,7 @@ static char* data_path(TargetId id, const char* out) {
         case TARGET_3DS: return str_ends_with_ci(out, ".3dsx") ? xstrdup(out) : str_fmt("%s/3ds/omori/omori.3dsx", out);
         case TARGET_VITA: return str_fmt("%s/data/OMORI/omori.pak", out);
         case TARGET_WII: return str_fmt("%s/apps/omori/omori.pak", out);
+        case TARGET_WIIU: return str_fmt("%s/wiiu/apps/omori/omori.pak", out);
         case TARGET_PS3: return str_ends_with_ci(out, ".pkg") ? xstrdup(out) : str_fmt("%s/OMORI.pkg", out);
         case TARGET_PS2: return str_ends_with_ci(out, ".iso") ? xstrdup(out) : str_fmt("%s/OMORI.iso", out);
         case TARGET_XENON: return str_fmt("%s/omori/omori.pak", out);
@@ -241,6 +252,14 @@ Package* package_open(const char* out, const char* engine_path, Game* g, Node* a
         case TARGET_WII:
             ok = ok && read_engine(TARGET_WII, engine_path, &p->dol);
             ok = ok && assets_build_hbc_icon(g, atlas, &p->icon);
+            break;
+        case TARGET_WIIU:
+            ok = ok && read_engine(TARGET_WIIU, engine_path, &p->rpx);
+            if (ok && !wiiu_rpx_check(p->rpx.data, p->rpx.len)) {
+                fprintf(stderr, "error: the Wii U engine is not a valid .rpx\n");
+                ok = 0;
+            }
+            ok = ok && assets_build_wiiu_art(g, atlas, &p->wuhb.icon, &p->wuhb.tv, &p->wuhb.drc);
             break;
         case TARGET_PS3:
             p->ps3.content_id = PS3_CONTENT_ID;
@@ -338,6 +357,18 @@ int package_finish(Package* p) {
         free(icon);
         return ok;
     }
+    if (p->id == TARGET_WIIU) {
+        char* dir = str_fmt("%s/wiiu/apps/omori", p->out);
+        char* wuhb = path_join(dir, "omori.wuhb");
+        p->wuhb.rpx = p->rpx.data;
+        p->wuhb.rpx_len = p->rpx.len;
+        int ok = wuhb_write(wuhb, &p->wuhb);
+        if (!ok) fprintf(stderr, "error: cannot write %s\n", wuhb);
+        p->summary = xstrdup(dir);
+        free(dir);
+        free(wuhb);
+        return ok;
+    }
     if (p->id == TARGET_XENON) {
         char* elf = path_join(p->out, "xenon.elf");
         int ok = xenon_split(p->data_path, p->pack_len);
@@ -381,6 +412,10 @@ void package_free(Package* p) {
     buf_free(&p->elf);
     buf_free(&p->icon_sys);
     buf_free(&p->icon_icn);
+    buf_free(&p->rpx);
+    buf_free(&p->wuhb.icon);
+    buf_free(&p->wuhb.tv);
+    buf_free(&p->wuhb.drc);
     free(p);
 }
 
@@ -398,6 +433,7 @@ const char* package_finish_text(void) {
     switch (g_target->id) {
         case TARGET_VITA: return "Writing OMORI.vpk";
         case TARGET_WII: return "Writing boot.dol";
+        case TARGET_WIIU: return "Writing omori.wuhb";
         case TARGET_PS3: return "Sealing OMORI.pkg";
         case TARGET_XENON: return "Writing xenon.elf";
         default: return "Finishing up";
@@ -531,6 +567,12 @@ int package_update_engine(const char* file, const char* engine_path) {
         Buf elf = {0};
         ok = read_engine(TARGET_PS2, engine_path, &elf) && ps2_iso_replace_elf(file, elf.data, elf.len);
         buf_free(&elf);
+    } else if (wuhb_is_wuhb(magic)) {
+        fclose(f);
+        target_set(target_get(TARGET_WIIU));
+        Buf rpx = {0};
+        ok = read_engine(TARGET_WIIU, engine_path, &rpx) && wiiu_rpx_check(rpx.data, rpx.len) && wuhb_replace_rpx(file, rpx.data, rpx.len);
+        buf_free(&rpx);
     } else if (str_ends_with_ci(file, ".elf") && !memcmp(magic, "\x7f" "ELF", 4)) {
         fclose(f);
         target_set(target_get(TARGET_XENON));
@@ -561,6 +603,7 @@ const char* package_out_prompt(void) {
         case TARGET_VITA: return "Choose a folder to save it in (OMORI.vpk and a data folder will be created inside)";
         case TARGET_3DS: return "Choose where to save it: your SD card, or any folder (a 3ds folder will be created inside)";
         case TARGET_WII: return "Choose where to save it: your SD card or USB drive, or any folder (an apps folder will be created inside)";
+        case TARGET_WIIU: return "Choose where to save it: your SD card, or any folder (a wiiu folder will be created inside)";
         case TARGET_PS3: return "Choose where to save it: a USB drive formatted as FAT32, or any folder (OMORI.pkg will be created inside)";
         case TARGET_PS2: return "Choose where to save it: the DVD folder of your Open PS2 Loader drive, or any folder (OMORI.iso will be created inside)";
         case TARGET_XENON: return "Choose where to save it: a USB drive formatted as FAT32, or any folder (xenon.elf and an omori folder will be created inside)";
@@ -577,6 +620,10 @@ char* package_done_message(const char* out) {
         case TARGET_WII:
             return str_fmt("Done!\n\nIf you picked your SD card or USB drive, OMORI is ready to play from the Homebrew Channel. Otherwise copy the apps "
                            "folder from\n%s\nto the root of your SD card or USB drive.",
+                           out);
+        case TARGET_WIIU:
+            return str_fmt("Done!\n\nIf you picked your SD card, OMORI is ready to play from the Wii U Menu with Aroma. Otherwise copy the wiiu folder "
+                           "from\n%s\nto the root of your SD card.",
                            out);
         case TARGET_PS3:
             return str_fmt("Done!\n\nIn %s you will find OMORI.pkg.\n\n1. Copy OMORI.pkg to the root of a FAT32 USB drive, if it is not on one "

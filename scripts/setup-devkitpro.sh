@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-console="${1:?usage: setup-devkitpro.sh wii|3ds}"
+console="${1:?usage: setup-devkitpro.sh wii|wiiu|3ds}"
 dest="$root/_deps/devkitpro"
 cache="$root/_deps/dkp-cache"
 case "$console" in
@@ -10,12 +10,17 @@ case "$console" in
       ppc-libjpeg-turbo gamecube-tools general-tools dkp-cmake-common-utils)
     compiler="$dest/devkitPPC/bin/powerpc-eabi-gcc"
     ;;
+  wiiu)
+    want=(devkitPPC devkitppc-rules devkitppc-cmake wut wut-tools wiiu-cmake wiiu-pkg-config ppc-zlib ppc-libogg ppc-libvorbis ppc-libjpeg-turbo
+      general-tools dkp-cmake-common-utils)
+    compiler="$dest/devkitPPC/bin/powerpc-eabi-gcc"
+    ;;
   3ds)
     want=(devkitARM devkitarm-rules devkitarm-cmake libctru citro3d 3ds-cmake 3dstools picasso tex3ds 3ds-pkg-config 3ds-zlib 3ds-libogg
       3ds-libvorbisidec 3ds-libjpeg-turbo general-tools dkp-cmake-common-utils)
     compiler="$dest/devkitARM/bin/arm-none-eabi-gcc"
     ;;
-  *) echo "unknown console $console (use wii or 3ds)" >&2; exit 1 ;;
+  *) echo "unknown console $console (use wii, wiiu or 3ds)" >&2; exit 1 ;;
 esac
 ua="pacman/6.1.0 (Linux x86_64) libalpm/14.0.0"
 base="https://pkg.devkitpro.org/packages"

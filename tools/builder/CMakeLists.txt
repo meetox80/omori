@@ -20,7 +20,7 @@ set(GEN ${CMAKE_CURRENT_BINARY_DIR}/gen)
 file(MAKE_DIRECTORY ${GEN})
 set(ENGINE_BLOBS)
 foreach(pair "psp/EBOOT.PBP:embedded_psp_eboot" "vita/eboot.bin:embedded_vita_eboot" "vita/param.sfo:embedded_vita_sfo"
-             "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "ps3/EBOOT.BIN:embedded_ps3_eboot"
+             "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "wiiu/omori.rpx:embedded_wiiu_rpx" "ps3/EBOOT.BIN:embedded_ps3_eboot"
              "ps2/OMORI.ELF:embedded_ps2_elf" "xenon/xenon.elf:embedded_xenon_elf")
   string(REPLACE ":" ";" parts ${pair})
   list(GET parts 0 engine_file)
