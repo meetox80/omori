@@ -1,4 +1,4 @@
-import { decrypt, findKey, installPrefix, isLaunchScript } from "./files.js";
+import { decrypt } from "./files.js";
 
 const MV_HEADER = 16;
 
@@ -9,18 +9,6 @@ function indexByGamePath(files) {
     if (match && !index.has(match[1].toLowerCase())) index.set(match[1].toLowerCase(), file);
   }
   return index;
-}
-
-async function launchKey(files) {
-  const system = files.find((file) => /(^|\/)www\/data\/system\.kel$/i.test(file.path));
-  const prefix = system ? installPrefix(system.path) : null;
-  if (prefix === null) return null;
-  const scripts = files.filter((file) => isLaunchScript(file.path, prefix));
-  for (const script of scripts) {
-    const key = findKey(await script.blob.text());
-    if (key) return key;
-  }
-  return null;
 }
 
 function hexBytes(hex) {
@@ -54,9 +42,8 @@ export function parseMessages(text) {
   return messages;
 }
 
-export async function openGameAssets(files) {
+export async function openGameAssets(files, key) {
   const index = indexByGamePath(files);
-  const key = await launchKey(files);
   const urls = [];
 
   const bytesOf = async (path) => {

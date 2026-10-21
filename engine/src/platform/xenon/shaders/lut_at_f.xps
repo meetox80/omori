@@ -1,0 +1,12 @@
+exec
+tfetch r3, r0.xy, tf0
+exec
+dp4 r4.x, r3, r2
+mad r4.xy, r4.x, c1.xzxz, c1.ywyw
+exec
+tfetch r5, r4.xy, tf1
+exec
+killgt r6.x, c2, r5.w
+alloc colors
+exec
+max o0, r5, r5

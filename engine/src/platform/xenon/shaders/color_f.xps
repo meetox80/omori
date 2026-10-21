@@ -1,0 +1,3 @@
+alloc colors
+exec
+max o0, r1, r1

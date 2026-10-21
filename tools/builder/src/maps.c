@@ -280,14 +280,14 @@ static int pack_rects(RectList* rl) {
         Rect* r = order[i];
         int gutter = (r->w == 18 && r->h == 18) ? 0 : 1;
         int need_w = r->w + gutter * 2, need_h = r->h + gutter * 2;
-        if (need_w > MAX_TEX) need_w = MAX_TEX;
-        if (need_h > MAX_TEX) need_h = MAX_TEX;
-        if (x + need_w > MAX_TEX) {
+        if (need_w > ATLAS_PAGE) need_w = ATLAS_PAGE;
+        if (need_h > ATLAS_PAGE) need_h = ATLAS_PAGE;
+        if (x + need_w > ATLAS_PAGE) {
             x = 0;
             y += row_h;
             row_h = 0;
         }
-        if (y + need_h > MAX_TEX) {
+        if (y + need_h > ATLAS_PAGE) {
             page++;
             x = 0;
             y = 0;
@@ -530,13 +530,13 @@ static Node* build_tiled(Game* g, Node* tm, int map_id, Buf* tex, char** err) {
         }
     }
     int pages = pack_rects(&rl);
-    Image* atlas = img_new(MAX_TEX, MAX_TEX * (pages ? pages : 1));
+    Image* atlas = img_new(ATLAS_PAGE, ATLAS_PAGE * (pages ? pages : 1));
     for (int i = 0; i < rl.count; i++) {
         Rect* r = &rl.items[i];
         Image* tile = tile_image(mts[r->ts].ts, r->local);
         if (!tile) continue;
         int gutter = (r->w == 18 && r->h == 18) ? 0 : 1;
-        blit_tile(atlas, tile, r->x, r->page * MAX_TEX + r->y, gutter);
+        blit_tile(atlas, tile, r->x, r->page * ATLAS_PAGE + r->y, gutter);
     }
     tex_encode(atlas, atlas->w, atlas->h, tex);
     img_free(atlas);

@@ -10,7 +10,7 @@
 namespace ui {
 namespace fx {
 
-#ifdef PSP
+#if defined(PSP) || defined(__3DS__) || defined(__PS2__)
 using real = float;
 #else
 using real = double;

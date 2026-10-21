@@ -2,12 +2,38 @@ const MOVIES = { from: 0.02, to: 0.36, text: "Converting the movies" };
 const PHASES = {
   database: { from: 0.36, to: 0.42, text: "Reading the game's data" },
   maps: { from: 0.42, to: 0.5, text: "Converting maps and events" },
-  images: { from: 0.5, to: 0.88, text: "Scaling the artwork for the PSP screen" },
-  audio: { from: 0.88, to: 0.9, text: "Copying music and sounds" },
+  images: {
+    from: 0.5,
+    to: 0.88,
+    text: { psp: "Scaling the artwork for the PSP screen", vita: "Converting the artwork", "3ds": "Scaling the artwork for the 3DS screen", wii: "Converting the artwork", ps3: "Converting the artwork", ps2: "Scaling the artwork for the PS2 screen", xbox360: "Converting the artwork" },
+  },
+  audio: {
+    from: 0.88,
+    to: 0.9,
+    text: { psp: "Copying music and sounds", vita: "Copying music and sounds", "3ds": "Copying music and sounds", wii: "Copying music and sounds", ps3: "Copying music and sounds", ps2: "Converting music and sounds", xbox360: "Copying music and sounds" },
+  },
   movies: { from: 0.9, to: 0.91, text: "Adding the movies" },
   fonts: { from: 0.91, to: 0.98, text: "Rendering the fonts" },
-  eboot: { from: 0.98, to: 0.99, text: "Writing EBOOT.PBP" },
+  write: { from: 0.98, to: 0.985, text: { psp: "Writing EBOOT.PBP", vita: "Writing the game data", "3ds": "Writing omori.3dsx", wii: "Writing the game data", ps3: "Writing OMORI.pkg", ps2: "Writing OMORI.iso", xbox360: "Writing the game data" } },
+  finish: { from: 0.985, to: 0.99, text: { psp: "Finishing up", vita: "Writing OMORI.vpk", "3ds": "Finishing up", wii: "Writing boot.dol", ps3: "Sealing OMORI.pkg", ps2: "Finishing up", xbox360: "Writing xenon.elf" } },
 };
+const SEALED = { ps3: 0.12 };
+const SPANS = { ps2: { images: { from: 0.5, to: 0.76 }, audio: { from: 0.76, to: 0.9 } } };
+
+function phaseText(phase, target) {
+  return typeof phase.text === "string" ? phase.text : phase.text[target];
+}
+
+function phaseRange(phase, target) {
+  const key = Object.keys(PHASES).find((name) => PHASES[name] === phase);
+  const span = SPANS[target]?.[key] ?? phase;
+  const seal = SEALED[target];
+  if (!seal) return span;
+  const end = PHASES.finish.from - seal;
+  if (phase === PHASES.finish) return { from: end, to: PHASES.finish.to };
+  const squeeze = (value) => MOVIES.to + ((value - MOVIES.to) * (end - MOVIES.to)) / (PHASES.finish.from - MOVIES.to);
+  return { from: squeeze(span.from), to: squeeze(span.to) };
+}
 const MAX_MOVIE_WORKERS = 8;
 const MOVIE_FILE = /(^|\/)www\/movies\/([^/]+\.webm)$/i;
 
@@ -99,7 +125,7 @@ export class Builder {
     return this.module;
   }
 
-  async run({ gameFiles, env, onProgress, onLine }) {
+  async run({ gameFiles, env, target, onProgress, onLine }) {
     const started = performance.now();
     const lines = [];
     const log = (line) => {
@@ -112,13 +138,13 @@ export class Builder {
     } catch (error) {
       return { ok: false, crashed: true, message: String(error?.message ?? error), lines };
     }
-    const movies = await this.convertMovies({ module, gameFiles, env, onProgress, log });
+    const movies = await this.convertMovies({ module, gameFiles, env, target, onProgress, log });
     if (movies.crackReason) return { ok: false, code: 3, crackReason: movies.crackReason, lines };
-    const result = await this.build({ module, gameFiles, env, movies: movies.files, onProgress, log, lines });
+    const result = await this.build({ module, gameFiles, env, target, movies: movies.files, onProgress, log, lines });
     return { ...result, seconds: (performance.now() - started) / 1000 };
   }
 
-  async convertMovies({ module, gameFiles, env, onProgress, log }) {
+  async convertMovies({ module, gameFiles, env, target, onProgress, log }) {
     const found = gameFiles
       .map((file) => ({ file, name: file.blob && file.path.match(MOVIE_FILE)?.[2] }))
       .filter((movie) => movie.name);
@@ -165,7 +191,7 @@ export class Builder {
           if (data.type === "done" && data.code === 3 && cracked) crackReason ??= cracked;
           resolve();
         };
-        worker.postMessage({ module, gameFiles, env, movie: movie.name });
+        worker.postMessage({ module, gameFiles, env, target, movie: movie.name });
       });
 
     const lane = async () => {
@@ -192,7 +218,7 @@ export class Builder {
     return { files };
   }
 
-  build({ module, gameFiles, env, movies, onProgress, log, lines }) {
+  build({ module, gameFiles, env, target, movies, onProgress, log, lines }) {
     this.worker ??= new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 
     return new Promise((resolve) => {
@@ -207,16 +233,15 @@ export class Builder {
           if (PHASES[word]) {
             phase = PHASES[word];
             phaseStarted = performance.now();
-            onProgress(phase.from, `${phase.text}...`);
+            onProgress(phaseRange(phase, target).from, `${phaseText(phase, target)}...`);
           }
 
           const step = word.match(/^progress (\d+)\/(\d+)$/);
-          if (step && (phase === PHASES.maps || phase === PHASES.images || phase === PHASES.movies)) {
+          if (step && (phase === PHASES.maps || phase === PHASES.images || phase === PHASES.audio || phase === PHASES.movies || phase === PHASES.finish)) {
             const fraction = Number(step[1]) / Number(step[2]);
-            onProgress(
-              phase.from + (phase.to - phase.from) * fraction,
-              `${phase.text}: ${step[1]} of ${step[2]}${timeLeft(phaseStarted, fraction)}`,
-            );
+            const range = phaseRange(phase, target);
+            const count = phase === PHASES.finish ? `${step[1]}%` : `${step[1]} of ${step[2]}`;
+            onProgress(range.from + (range.to - range.from) * fraction, `${phaseText(phase, target)}: ${count}${timeLeft(phaseStarted, fraction)}`);
           }
           return;
         }
@@ -233,13 +258,13 @@ export class Builder {
           ok: data.code === 0 && Boolean(data.output),
           code: data.code,
           seconds: data.seconds,
-          output: data.output ? { name: data.output, size: data.size, crc: data.crc } : null,
+          output: data.output ? { name: data.output, path: data.path, size: data.size, crc: data.crc, extras: data.extras } : null,
           crackReason: data.code === 3 && cracked ? cracked[1] : null,
           lines,
         });
       };
 
-      this.worker.postMessage({ module, gameFiles, env, movies });
+      this.worker.postMessage({ module, gameFiles, env, target, movies });
     });
   }
 }

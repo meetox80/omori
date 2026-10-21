@@ -13,6 +13,7 @@ extern "C" {
 #include "dbproc.h"
 #include "js.h"
 #include "jsops.h"
+#include "progress.h"
 #include "util.h"
 }
 
@@ -431,6 +432,7 @@ extern "C" int dbproc_run(Game* g, Node* root, Node* plugin_list, char** err) {
         if (src.empty()) continue;
         r.exec_statements(name, src);
     }
+    progress_fraction(0.12);
     for (int i = 0; DB_KEYS[i][0]; i++) {
         Node* n = node_get(root, DB_KEYS[i][0]);
         if (n) r.set(DB_KEYS[i][1], to_val(n));
@@ -465,6 +467,7 @@ extern "C" int dbproc_run(Game* g, Node* root, Node* plugin_list, char** err) {
         all += ",\"Yanfly\":" + js::json_stringify(r.global("Yanfly")) + "}";
         file_write(dump, all.data(), all.size());
     }
+    progress_fraction(0.85);
     Exporter ex;
     for (int i = 0; DB_KEYS[i][0]; i++) {
         js::Val v = r.global(DB_KEYS[i][1]);

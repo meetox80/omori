@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-label="Classic Controller controls for the OMORI port"><title>Classic Controller controls for the OMORI port</title><style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.name{font-size:30px;font-weight:600}.ink{fill:#f0f6fc}.dim{fill:#9198a1}.action{font-size:26px;fill:#9198a1}.line{fill:none;stroke:#6e7681;stroke-width:2.5;stroke-linejoin:round}.dot{fill:#6e7681}</style><svg x="475.0" y="170.0" width="850.0" height="476.0" viewBox="0 0 1000 560"><defs>
+<linearGradient id="p-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbfbfb"/><stop offset=".7" stop-color="#eeeeee"/><stop offset="1" stop-color="#d9d9d9"/></linearGradient>
+<linearGradient id="p-shoulder" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2f2f2"/><stop offset="1" stop-color="#c9c9c9"/></linearGradient>
+<radialGradient id="p-key" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dedede"/></radialGradient>
+<radialGradient id="p-stick" cx=".4" cy=".35" r=".75"><stop offset="0" stop-color="#5a5a5a"/><stop offset="1" stop-color="#262626"/></radialGradient>
+</defs>
+<path d="M500 104V0" stroke="#d4d4d4" stroke-width="16" fill="none"/>
+<path d="M500 104V0" stroke="#ececec" stroke-width="9" fill="none"/>
+<path id="p-l" d="M96 240C96 130 150 66 218 62H312C330 62 338 74 336 92L332 140H130Z" fill="url(#p-shoulder)" stroke="#b9b9b9" stroke-width="4"/>
+<path id="p-zl" d="M350 112L354 82C356 70 364 64 376 64H426C438 64 444 72 442 84L438 112Z" fill="url(#p-shoulder)" stroke="#b9b9b9" stroke-width="4"/>
+<path id="p-r" d="M904 240C904 130 850 66 782 62H688C670 62 662 74 664 92L668 140H870Z" fill="url(#p-shoulder)" stroke="#b9b9b9" stroke-width="4"/>
+<path id="p-zr" d="M650 112L646 82C644 70 636 64 624 64H574C562 64 556 72 558 84L562 112Z" fill="url(#p-shoulder)" stroke="#b9b9b9" stroke-width="4"/>
+<text x="214" y="96" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#9a9a9a">L</text>
+<text x="396" y="98" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#9a9a9a">ZL</text>
+<text x="786" y="96" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#9a9a9a">R</text>
+<text x="604" y="98" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#9a9a9a">ZR</text>
+<path id="p-shell" d="M250 104H750A200 200 0 1 1 650 478Q500 410 350 478A200 200 0 1 1 250 104Z" fill="url(#p-body)" stroke="#bdbdbd" stroke-width="5"/>
+<circle cx="252" cy="258" r="104" fill="#e7e7e7" stroke="#d6d6d6" stroke-width="3"/>
+<path id="p-dpad" d="M230 178H274V236H332V280H274V338H230V280H172V236H230Z" fill="#3a3a3a" stroke="#222" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="252" cy="258" r="10" fill="#2c2c2c"/>
+<path d="M252 190l-9 14h18zM252 326l-9-14h18zM184 258l14-9v18zM320 258l-14-9v18z" fill="#5c5c5c"/>
+<circle cx="748" cy="258" r="112" fill="#e7e7e7" stroke="#d6d6d6" stroke-width="3"/>
+<g font-family="Arial, Helvetica, sans-serif" font-size="34" fill="#8f8f8f" text-anchor="middle">
+<circle id="p-x" cx="748" cy="194" r="32" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/><text x="748" y="205">x</text>
+<circle id="p-y" cx="684" cy="258" r="32" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/><text x="684" y="269">y</text>
+<circle id="p-a" cx="812" cy="258" r="32" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/><text x="812" y="269">a</text>
+<circle id="p-b" cx="748" cy="322" r="32" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/><text x="748" y="333">b</text>
+</g>
+<circle cx="385" cy="374" r="70" fill="#e2e2e2" stroke="#d0d0d0" stroke-width="3"/>
+<circle id="p-lstick" cx="385" cy="374" r="50" fill="url(#p-stick)" stroke="#1d1d1d" stroke-width="3"/>
+<circle cx="385" cy="374" r="34" fill="none" stroke="#4a4a4a" stroke-width="3"/>
+<circle cx="615" cy="374" r="70" fill="#e2e2e2" stroke="#d0d0d0" stroke-width="3"/>
+<circle id="p-rstick" cx="615" cy="374" r="50" fill="url(#p-stick)" stroke="#1d1d1d" stroke-width="3"/>
+<circle cx="615" cy="374" r="34" fill="none" stroke="#4a4a4a" stroke-width="3"/>
+<circle id="p-minus" cx="424" cy="246" r="18" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/>
+<path d="M415 246H433" stroke="#8f8f8f" stroke-width="4"/>
+<circle id="p-home" cx="500" cy="246" r="20" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/>
+<path d="M489 248L500 238L511 248M492 246V256H508V246" fill="#3c8de0" stroke="#3c8de0" stroke-width="2" stroke-linejoin="round"/>
+<circle id="p-plus" cx="576" cy="246" r="18" fill="url(#p-key)" stroke="#bdbdbd" stroke-width="3"/>
+<path d="M567 246H585M576 237V255" stroke="#8f8f8f" stroke-width="4"/>
+<g font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#a3a3a3" text-anchor="middle">
+<text x="424" y="286">SELECT</text><text x="500" y="290">HOME</text><text x="576" y="286">START</text>
+</g>
+</svg><path class="line" d="M835.0 378.0 L875.0 290.0 L875.0 80.0 L430.0 80.0"/><circle class="dot" cx="835.0" cy="378.0" r="5"/><text x="418" y="72" text-anchor="end" class="name ink">−</text><text x="418" y="106" text-anchor="end" class="action">tab</text><path class="line" d="M812.0 240.0 L812.0 160.0 L430.0 160.0"/><circle class="dot" cx="812.0" cy="240.0" r="5"/><path class="line" d="M655.0 240.0 L655.0 160.0"/><circle class="dot" cx="655.0" cy="240.0" r="5"/><text x="418" y="152" text-anchor="end" class="name ink">L and ZL</text><text x="418" y="186" text-anchor="end" class="action">page up, Q map shortcut</text><path class="line" d="M688.0 388.0 L430.0 388.0"/><circle class="dot" cx="688.0" cy="388.0" r="5"/><text x="418" y="380" text-anchor="end" class="name ink">D-pad</text><text x="418" y="414" text-anchor="end" class="action">move, choose</text><path class="line" d="M802.0 488.0 L430.0 488.0"/><circle class="dot" cx="802.0" cy="488.0" r="5"/><text x="418" y="480" text-anchor="end" class="name ink">Left stick</text><text x="418" y="514" text-anchor="end" class="action">move</text><path class="line" d="M965.0 378.0 L925.0 290.0 L925.0 80.0 L1370.0 80.0"/><circle class="dot" cx="965.0" cy="378.0" r="5"/><text x="1382" y="72" text-anchor="start" class="name ink">+</text><text x="1382" y="106" text-anchor="start" class="action">cancel, open the menu</text><path class="line" d="M988.0 240.0 L988.0 160.0 L1370.0 160.0"/><circle class="dot" cx="988.0" cy="240.0" r="5"/><path class="line" d="M1142.0 240.0 L1142.0 160.0"/><circle class="dot" cx="1142.0" cy="240.0" r="5"/><text x="1382" y="152" text-anchor="start" class="name ink">R and ZR</text><text x="1382" y="186" text-anchor="start" class="action">page down, W map shortcut</text><path class="line" d="M1110.0 335.0 L1140.0 290.0 L1370.0 290.0"/><circle class="dot" cx="1110.0" cy="335.0" r="5"/><text x="1382" y="282" text-anchor="start" class="name ink">x</text><text x="1382" y="316" text-anchor="start" class="action">tag, switch the leader</text><path class="line" d="M1165.0 390.0 L1370.0 390.0"/><circle class="dot" cx="1165.0" cy="390.0" r="5"/><text x="1382" y="382" text-anchor="start" class="name ink">a</text><text x="1382" y="416" text-anchor="start" class="action">confirm, talk, next line</text><path class="line" d="M1110.0 443.0 L1150.0 480.0 L1370.0 480.0"/><circle class="dot" cx="1110.0" cy="443.0" r="5"/><text x="1382" y="472" text-anchor="start" class="name ink">b</text><text x="1382" y="506" text-anchor="start" class="action">cancel, open the menu</text><path class="line" d="M1068.0 400.0 L1070.0 570.0 L1370.0 570.0"/><circle class="dot" cx="1068.0" cy="400.0" r="5"/><text x="1382" y="562" text-anchor="start" class="name ink">y</text><text x="1382" y="596" text-anchor="start" class="action">hold to run</text><path class="line" d="M998.0 488.0 L998.0 660.0 L1370.0 660.0"/><circle class="dot" cx="998.0" cy="488.0" r="5"/><text x="1382" y="652" text-anchor="start" class="name dim">Right stick</text><text x="1382" y="686" text-anchor="start" class="action">not used</text><path class="line" d="M900.0 378.0 L900.0 620.0"/><circle class="dot" cx="900.0" cy="378.0" r="5"/><path class="line" d="M900.0 620 L900.0 650"/><text x="900.0" y="682" text-anchor="middle" class="name ink">Home</text><text x="900.0" y="716" text-anchor="middle" class="action">quits the game</text></svg>

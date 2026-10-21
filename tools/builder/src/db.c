@@ -8,6 +8,7 @@
 #include "dbproc.h"
 #include "image.h"
 #include "js.h"
+#include "progress.h"
 #include "rx.h"
 #include "script.h"
 #include "yaml.h"
@@ -318,9 +319,11 @@ Node* db_build(Game* g, Pack* pack, Node** lang_out) {
     node_free(pl);
     node_set(root, "plugins", plugins);
     node_set(root, "pluginOrder", order);
+    progress_fraction(0.05);
     char* dberr = NULL;
     if (!dbproc_run(g, root, pl_raw, &dberr)) fatal("%s", dberr ? dberr : "data step failed");
     node_free(pl_raw);
+    progress_fraction(0.9);
     Node* yan = node_get(root, "yanfly");
     Node* yparam = yan ? node_get(yan, "Param") : NULL;
     if (yparam && yparam->type == N_OBJ) {

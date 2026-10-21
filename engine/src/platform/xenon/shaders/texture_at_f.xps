@@ -1,0 +1,8 @@
+exec
+tfetch r3, r0.xy, tf0
+exec
+mul r4, r3, r1
+killgt r5.x, c2, r4.w
+alloc colors
+exec
+max o0, r4, r4

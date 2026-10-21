@@ -121,6 +121,7 @@ TiledTilemap::TiledTilemap() {
 }
 
 void TiledTilemap::setup() {
+    positions_valid_ = false;
     rpg::GameMap& m = rpg::game_map();
     doc_ = m.doc;
     const Value& t = m.tiled();
@@ -206,7 +207,6 @@ void TiledTilemap::setup() {
         s->z = player_z_;
         s->layer_id = -1;
         s->hide();
-        add_child(s);
         priority_tiles_.push_back(s);
     }
 }
@@ -283,11 +283,18 @@ void TiledTilemap::update_anim_frames() {
 
 void TiledTilemap::update_layer_positions(int sx, int sy) {
     double ox = std::floor(origin_x), oy = std::floor(origin_y);
+    if (positions_valid_ && sx == positioned_sx_ && sy == positioned_sy_ && ox == positioned_ox_ && oy == positioned_oy_) return;
+    positions_valid_ = true;
+    positioned_sx_ = sx;
+    positioned_sy_ = sy;
+    positioned_ox_ = ox;
+    positioned_oy_ = oy;
     for (Layer& l : layers_) {
         l.sprite->x = sx * tile_width_ - ox + l.offx;
         l.sprite->y = sy * tile_height_ - oy + l.offy;
     }
-    for (auto& s : priority_tiles_) {
+    for (size_t i = 0; i < priority_count_; i++) {
+        auto& s = priority_tiles_[i];
         double offx = s->layer_id >= 0 ? layer_offset_x(s->layer_id) : 0;
         double offy = s->layer_id >= 0 ? layer_offset_y(s->layer_id) : 0;
         s->x = s->orig_x + sx * tile_width_ - ox + offx + s->width / 2;
@@ -326,6 +333,7 @@ void TiledTilemap::paint_priority_tile(int li, int table, int sx, int sy, double
     s->priority = pr;
     s->z = z;
     s->show();
+    if (s->parent != this) add_child(s);
     priority_count_++;
 }
 
@@ -352,6 +360,7 @@ void TiledTilemap::paint_all_tiles(int sx, int sy) {
         auto& s = priority_tiles_[priority_count_];
         s->hide();
         s->layer_id = -1;
+        if (s->parent == this) remove_child(s.get());
         priority_count_++;
     }
 }

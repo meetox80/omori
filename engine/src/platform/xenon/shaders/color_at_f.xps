@@ -1,0 +1,5 @@
+exec
+killgt r3.x, c2, r1.w
+alloc colors
+exec
+max o0, r1, r1

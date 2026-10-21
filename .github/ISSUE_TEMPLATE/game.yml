@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        One problem per issue, please. Don't attach any of the game's files or your EBOOT.PBP.
+        One problem per issue, please. Don't attach any of the game's files or anything the builder made.
 
   - type: dropdown
     id: device
@@ -17,14 +17,25 @@ body:
         - PSP Go
         - PSP Street (E1000)
         - PPSSPP
+        - PS Vita or PS TV
+        - Vita3K
+        - 3DS or 2DS
+        - Azahar
+        - Wii or Wii U
+        - Dolphin
+        - PS3
+        - RPCS3
+        - PS2
+        - PCSX2 or Play!
+        - Xbox 360
     validations:
       required: true
 
   - type: input
     id: firmware
     attributes:
-      label: Firmware or PPSSPP version
-      placeholder: 6.61 PRO-C2, ARK-4, PPSSPP 1.18.1 on Android...
+      label: Firmware, loader or emulator version
+      placeholder: 6.61 PRO-C2, HENkaku Ensō 3.65, Luma3DS 13.3, Homebrew Channel 1.1.2, Evilnat 4.92, OPL 1.2.0, XeLL Reloaded, PPSSPP 1.18.1...
     validations:
       required: true
 
@@ -39,9 +50,9 @@ body:
   - type: dropdown
     id: builder
     attributes:
-      label: How did you build the EBOOT?
+      label: How did you build it?
       options:
-        - In the browser (psp-omori.ox80.cc)
+        - In the browser (omori.ox80.cc)
         - Desktop builder
         - From source
     validations:
@@ -67,13 +78,13 @@ body:
     id: steps
     attributes:
       label: Can you make it happen again?
-      description: The steps, if you know them. A save from right before it helps a lot (PSP/GAME/OMORI/saves).
+      description: The steps, if you know them. A save from right before it helps a lot (the saves folder next to the game, or the OMORI folder on the PS2 memory card).
 
   - type: textarea
     id: log
     attributes:
       label: Log
-      description: Attach PSP/GAME/OMORI/log.txt from the memory stick, or paste the end of it here.
+      description: Attach log.txt from next to the game (PSP/GAME/OMORI, ux0:data/OMORI, 3ds/omori, apps/omori, /dev_hdd0/game/OMRI00001/USRDIR, omori on the Xbox 360's USB drive), or paste the end of it here. The PS2 build started from its iso doesn't write one.
       render: text
 
   - type: textarea
@@ -86,7 +97,7 @@ body:
     attributes:
       label: Your copy
       options:
-        - label: I built the EBOOT from my own copy of OMORI 1.0.8 bought on Steam.
+        - label: I built it from my own copy of OMORI 1.0.8 bought on Steam.
           required: true
-        - label: I'm not attaching any of the game's files or my EBOOT.PBP.
+        - label: I'm not attaching any of the game's files or anything the builder made.
           required: true

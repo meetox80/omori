@@ -244,6 +244,8 @@ bool start(MixFn fn) {
     return true;
 }
 
+bool start_feeder(void (*fn)()) { return plat::start_thread(fn); }
+
 void stop() {
     if (g_dev) SDL_CloseAudioDevice(g_dev);
     g_dev = 0;

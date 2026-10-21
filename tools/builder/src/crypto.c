@@ -69,6 +69,103 @@ void sha256(const void* data, size_t len, uint8_t out[32]) {
     }
 }
 
+#define ROL(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
+
+static void sha1_compress(uint32_t h[5], const uint8_t* p) {
+    uint32_t w[80];
+    for (int i = 0; i < 16; i++) w[i] = (uint32_t)p[i * 4] << 24 | (uint32_t)p[i * 4 + 1] << 16 | (uint32_t)p[i * 4 + 2] << 8 | p[i * 4 + 3];
+    for (int i = 16; i < 80; i++) w[i] = ROL(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+    for (int i = 0; i < 80; i++) {
+        uint32_t f, k;
+        if (i < 20) {
+            f = (b & c) | (~b & d);
+            k = 0x5A827999;
+        } else if (i < 40) {
+            f = b ^ c ^ d;
+            k = 0x6ED9EBA1;
+        } else if (i < 60) {
+            f = (b & c) | (b & d) | (c & d);
+            k = 0x8F1BBCDC;
+        } else {
+            f = b ^ c ^ d;
+            k = 0xCA62C1D6;
+        }
+        uint32_t t = ROL(a, 5) + f + e + k + w[i];
+        e = d;
+        d = c;
+        c = ROL(b, 30);
+        b = a;
+        a = t;
+    }
+    h[0] += a;
+    h[1] += b;
+    h[2] += c;
+    h[3] += d;
+    h[4] += e;
+}
+
+static void sha1_out(const uint32_t h[5], uint8_t out[20]) {
+    for (int k = 0; k < 5; k++) {
+        out[k * 4] = (uint8_t)(h[k] >> 24);
+        out[k * 4 + 1] = (uint8_t)(h[k] >> 16);
+        out[k * 4 + 2] = (uint8_t)(h[k] >> 8);
+        out[k * 4 + 3] = (uint8_t)h[k];
+    }
+}
+
+void sha1_init(Sha1* s) {
+    static const uint32_t IV[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    memcpy(s->h, IV, sizeof(IV));
+    s->len = 0;
+    s->fill = 0;
+}
+
+void sha1_update(Sha1* s, const void* data, size_t len) {
+    const uint8_t* p = data;
+    s->len += len;
+    if (s->fill) {
+        size_t take = 64 - s->fill < len ? 64 - s->fill : len;
+        memcpy(s->buf + s->fill, p, take);
+        s->fill += take;
+        p += take;
+        len -= take;
+        if (s->fill < 64) return;
+        sha1_compress(s->h, s->buf);
+        s->fill = 0;
+    }
+    for (; len >= 64; p += 64, len -= 64) sha1_compress(s->h, p);
+    memcpy(s->buf, p, len);
+    s->fill = len;
+}
+
+void sha1_final(Sha1* s, uint8_t out[20]) {
+    uint64_t bits = s->len * 8;
+    uint8_t pad = 0x80;
+    sha1_update(s, &pad, 1);
+    uint8_t zero[64] = {0};
+    sha1_update(s, zero, s->fill <= 56 ? 56 - s->fill : 120 - s->fill);
+    uint8_t tail[8];
+    for (int k = 0; k < 8; k++) tail[k] = (uint8_t)(bits >> (56 - 8 * k));
+    sha1_update(s, tail, 8);
+    sha1_out(s->h, out);
+}
+
+void sha1(const void* data, size_t len, uint8_t out[20]) {
+    Sha1 s;
+    sha1_init(&s);
+    sha1_update(&s, data, len);
+    sha1_final(&s, out);
+}
+
+void sha1_block64(const uint8_t msg[64], uint8_t out[20]) {
+    static const uint8_t PAD[64] = {0x80, [62] = 0x02};
+    uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    sha1_compress(h, msg);
+    sha1_compress(h, PAD);
+    sha1_out(h, out);
+}
+
 static const uint8_t SBOX[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59,
     0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0, 0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1,

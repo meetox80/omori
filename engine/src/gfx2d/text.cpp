@@ -11,6 +11,7 @@
 
 #include "../core/fs.h"
 #include "../core/value.h"
+#include "../platform/gfx.h"
 #include "../platform/platform.h"
 
 namespace g2d {
@@ -36,13 +37,11 @@ static bool load_linear(const std::string& rel, int& w, int& h, std::vector<uint
         std::vector<uint8_t> raw(rsize);
         uLongf len = rsize;
         if (off + csize > d.size() || uncompress(raw.data(), &len, &d[off], csize) != Z_OK || len != rsize) return false;
-        int bw = stride * 4;
         bool swz = (flags & 1) != 0;
         for (int y = 0; y < ch && y < rows; y++) {
             for (int x = 0; x < cw; x++) {
-                int xb = x * 4;
-                size_t o = swz ? ((size_t)(y / 8) * (bw / 16) + (xb / 16)) * 128 + (y % 8) * 16 + (xb % 16) : (size_t)y * bw + xb;
-                out[(size_t)(cy + y) * w + cx + x] = (uint16_t)(raw[o] | (raw[o + 3] << 8));
+                uint32_t c = swz ? gfx::stored_texel(raw.data(), x, y, stride, rows) : gfx::rgba(raw[((size_t)y * stride + x) * 4], 0, 0, raw[((size_t)y * stride + x) * 4 + 3]);
+                out[(size_t)(cy + y) * w + cx + x] = (uint16_t)((c & 255) | ((c >> 24) << 8));
             }
         }
     }
@@ -77,7 +76,7 @@ bool FontFace::load(const std::string& base) {
     return true;
 }
 
-#ifdef PSP
+#if defined(PSP) || defined(__3DS__) || defined(__PS2__)
 static const size_t ATLAS_BUDGET = 2u << 20;
 #else
 static const size_t ATLAS_BUDGET = 8u << 20;

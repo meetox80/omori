@@ -1,5 +1,5 @@
 name: The builder doesn't work
-description: Importing the game or building the EBOOT fails, hangs or gives an error.
+description: Importing the game or building it for a console fails, hangs or gives an error.
 labels: ["bug", "builder"]
 body:
   - type: markdown
@@ -12,11 +12,26 @@ body:
     attributes:
       label: Which builder?
       options:
-        - In the browser (psp-omori.ox80.cc)
+        - In the browser (omori.ox80.cc)
         - Desktop builder on Windows
         - Desktop builder on macOS
         - Desktop builder on Linux
         - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: console
+    attributes:
+      label: Which console were you building for?
+      options:
+        - PSP
+        - PS Vita
+        - 3DS
+        - Wii
+        - PS3
+        - PS2
+        - Xbox 360
     validations:
       required: true
 

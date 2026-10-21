@@ -1,0 +1,11 @@
+sprite_v sprite_v.cg vp
+color_f color_f.cg fp
+color_at_f color_f.cg fp ALPHA_TEST
+texture_f texture_f.cg fp
+texture_at_f texture_f.cg fp ALPHA_TEST
+flat_f flat_f.cg fp
+flat_at_f flat_f.cg fp ALPHA_TEST
+lut_f lut_f.cg fp
+lut_at_f lut_f.cg fp ALPHA_TEST
+gray_f gray_f.cg fp
+present_f present_f.cg fp

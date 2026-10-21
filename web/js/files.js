@@ -158,16 +158,48 @@ export function missingGameParts(paths) {
     ["www/fonts/OMORI_GAME.ttf", /(^|\/)www\/fonts\/omori_game\.ttf$/],
     ["www/fonts/OMORI_GAME2.ttf", /(^|\/)www\/fonts\/omori_game2\.ttf$/],
   ];
-  const missing = required.filter(([, pattern]) => !has(pattern)).map(([name]) => name);
-  const manager = paths.find((path) => /(^|\/)www\/js\/rpg_managers\.js$/i.test(path));
-  const prefix = manager ? installPrefix(manager) : null;
-  if (prefix === null || !paths.some((path) => isLaunchScript(path, prefix))) missing.push("Launch_OMORI.bat (next to OMORI.exe)");
-  return missing;
+  return required.filter(([, pattern]) => !has(pattern)).map(([name]) => name);
 }
 
-export function findKey(text) {
-  const match = text.match(/--([0-9a-f]{32})(?![0-9a-f])/);
-  return match ? match[1] : null;
+function isKeyChar(byte) {
+  return (byte >= 0x30 && byte <= 0x39) || (byte >= 0x61 && byte <= 0x66);
+}
+
+export function keysIn(bytes) {
+  const keys = new Set();
+  for (let i = 0; i + 34 <= bytes.length; i++) {
+    if (bytes[i] !== 0x2d || bytes[i + 1] !== 0x2d) continue;
+    let length = 0;
+    while (length < 32 && isKeyChar(bytes[i + 2 + length])) length++;
+    if (length < 32 || isKeyChar(bytes[i + 34])) continue;
+    keys.add(String.fromCharCode(...bytes.subarray(i + 2, i + 34)));
+  }
+  return keys;
+}
+
+async function opensSystem(key, system) {
+  const plain = await decrypt(key, system);
+  if (!plain || plain[0] !== 0x7b) return false;
+  try {
+    JSON.parse(new TextDecoder().decode(plain));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function findGameKey(files, extraSources = []) {
+  const system = files.find((file) => /(^|\/)www\/data\/system\.kel$/i.test(file.path));
+  if (!system) return null;
+  const prefix = installPrefix(system.path);
+  const systemBytes = new Uint8Array(await system.blob.arrayBuffer());
+  const sources = [...files.filter((file) => isLaunchScript(file.path, prefix)).map((file) => file.blob), ...extraSources];
+  for (const source of sources) {
+    for (const key of keysIn(new Uint8Array(await source.arrayBuffer()))) {
+      if (await opensSystem(key, systemBytes)) return key;
+    }
+  }
+  return null;
 }
 
 export async function decrypt(key, bytes) {
@@ -177,17 +209,10 @@ export async function decrypt(key, bytes) {
   return new Uint8Array(plain);
 }
 
-export async function readGameVersion(files) {
+export async function readGameVersion(files, key) {
   const title = files.find((file) => /(^|\/)www\/js\/plugins\/omori title screen\.omori$/i.test(file.path));
   if (!title) return "unknown";
-  const prefix = installPrefix(title.path);
-  const bytes = new Uint8Array(await title.blob.arrayBuffer());
-  for (const script of files.filter((file) => isLaunchScript(file.path, prefix))) {
-    const key = findKey(await script.blob.text());
-    if (!key) continue;
-    const plain = await decrypt(key, bytes);
-    const match = plain && new TextDecoder().decode(plain).match(/drawText\("V([^"]{1,15})"/);
-    if (match) return match[1];
-  }
-  return "unknown";
+  const plain = await decrypt(key, new Uint8Array(await title.blob.arrayBuffer()));
+  const match = plain && new TextDecoder().decode(plain).match(/drawText\("V([^"]{1,15})"/);
+  return match ? match[1] : "unknown";
 }

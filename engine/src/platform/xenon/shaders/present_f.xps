@@ -1,0 +1,19 @@
+exec
+mul r3.xy, r0, c3
+floor r4.xy, r3
+frc r5.xy, r3
+add r5.xy, r5, -c4.z
+min r6.xy, r5, c4.y
+max r6.xy, r6, -c4.y
+exec
+add r5.xy, r5, -r6
+mad r5.xy, r5, c4.x, c4.z
+add r4.xy, r4, r5
+mul r4.xy, r4, c3.zwzw
+exec
+tfetch r7, r4.xy, tf0
+exec
+max r7.w, c4.w, c4.w
+alloc colors
+exec
+max o0, r7, r7

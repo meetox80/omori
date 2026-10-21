@@ -6,18 +6,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "adpcm.h"
 #include "assets.h"
 #include "image.h"
 #include "jpeg.h"
 #include "ogg.h"
+#include "progress.h"
 #include "webm.h"
 
 #include "opus.h"
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
 
-#define MOVIE_MAX_W 480
-#define MOVIE_MAX_H 272
 #define DUP_TOLERANCE 2
 #define OPUS_RATE 48000
 
@@ -140,16 +140,16 @@ static void yuv_to_rgba(Enc* e, const vpx_image_t* img) {
 
 static void enc_init(Enc* e, int src_w, int src_h, int quality) {
     memset(e, 0, sizeof(*e));
-    double s = TEX_SCALE;
-    if (src_w * s > MOVIE_MAX_W) s = (double)MOVIE_MAX_W / src_w;
-    if (src_h * s > MOVIE_MAX_H) s = (double)MOVIE_MAX_H / src_h;
+    double s = g_target->tex_scale;
+    if (src_w * s > g_target->movie_max_w) s = (double)g_target->movie_max_w / src_w;
+    if (src_h * s > g_target->movie_max_h) s = (double)g_target->movie_max_h / src_h;
     e->out_w = (int)lround(src_w * s);
     e->out_h = (int)lround(src_h * s);
     if (e->out_w < 1) e->out_w = 1;
     if (e->out_h < 1) e->out_h = 1;
     e->coded_w = (e->out_w + 15) & ~15;
     e->coded_h = (e->out_h + 15) & ~15;
-    if (e->coded_h > MOVIE_MAX_H) e->coded_h = e->out_h;
+    if (e->coded_h > g_target->movie_max_h) e->coded_h = e->out_h;
     e->quality = quality;
     e->rgb = xmalloc((size_t)e->out_w * e->out_h * 3);
     e->last = xmalloc((size_t)e->out_w * e->out_h * 3);
@@ -585,7 +585,24 @@ typedef struct {
     int count;
     int done;
     Mutex* lock;
+    double* part;
 } MovieBatch;
+
+typedef struct {
+    MovieBatch* batch;
+    int index;
+} MovieTick;
+
+static void movie_tick(void* ctx, int done, int total) {
+    MovieTick* t = ctx;
+    MovieBatch* b = t->batch;
+    mutex_lock(b->lock);
+    b->part[t->index] = total > 0 ? (double)done / total : 1.0;
+    double sum = 0;
+    for (int i = 0; i < b->count; i++) sum += b->part[i];
+    mutex_unlock(b->lock);
+    progress_fraction(sum / b->count);
+}
 
 static int convert_stored(Game* g, const char* stored, const char* logical, MovieOut* out, char** error, MovieProgress progress, void* ctx) {
     Buf b = {0};
@@ -604,7 +621,22 @@ static int convert_stored(Game* g, const char* stored, const char* logical, Movi
 static void movie_job(void* ctx, int i) {
     MovieBatch* batch = ctx;
     MovieJob* j = &batch->list[i];
-    if (!j->cache || !load_cached(j->cache, j->logical, &j->out)) convert_stored(j->game, j->stored, j->logical, &j->out, &j->error, NULL, NULL);
+    MovieTick tick = {batch, i};
+    int live = progress_active();
+    if (!j->cache || !load_cached(j->cache, j->logical, &j->out))
+        convert_stored(j->game, j->stored, j->logical, &j->out, &j->error, live ? movie_tick : NULL, live ? &tick : NULL);
+    if (!j->error && g_target->id == TARGET_PS2 && j->out.audio.len >= 4 && !memcmp(j->out.audio.data, "OggS", 4)) {
+        Buf pcm = {0};
+        char err[128];
+        if (adpcm_from_ogg(j->out.audio.data, j->out.audio.len, &pcm, err, sizeof(err))) {
+            buf_free(&j->out.audio);
+            j->out.audio = pcm;
+        } else {
+            buf_free(&pcm);
+            j->error = str_fmt("%s: audio: %s", j->logical, err);
+        }
+    }
+    if (live) movie_tick(&tick, 1, 1);
     mutex_lock(batch->lock);
     batch->done++;
     log_msg("  progress %d/%d", batch->done, batch->count);
@@ -694,9 +726,10 @@ int assets_build_movies(Game* g, Pack* pack, int jobs, const char* cache) {
         n++;
     }
     str_list_free(files, nfiles);
-    MovieBatch batch = {list, n, 0, mutex_new()};
+    MovieBatch batch = {list, n, 0, mutex_new(), xcalloc((size_t)(n ? n : 1), sizeof(double))};
     run_jobs(movie_job, &batch, n, jobs);
     mutex_free(batch.lock);
+    free(batch.part);
     double total = 0;
     for (int i = 0; i < n; i++) {
         MovieJob* j = &list[i];

@@ -53,7 +53,7 @@ bool read_header(fs::DataFile* f, Header& h) {
     h.max_bytes = rd32(b + 28);
     h.table_off = rd32(b + 32);
     h.flags = rd32(b + 36);
-    return h.frames > 0 && h.w > 0 && h.h > 0 && h.coded_w >= h.w && h.coded_h >= h.h && h.coded_w <= 512 && h.coded_h <= 512 && h.src_w > 0 &&
+    return h.frames > 0 && h.w > 0 && h.h > 0 && h.coded_w >= h.w && h.coded_h >= h.h && h.coded_w <= profile::MOVIE_MAX && h.coded_h <= profile::MOVIE_MAX && h.src_w > 0 &&
            h.src_h > 0;
 }
 
@@ -270,6 +270,7 @@ void player_advance(Player* p, double t) {
     if (best >= 0 && best_frame > p->shown_frame) {
         if (p->shown >= 0 && p->shown != best) p->slots[p->shown].state = SLOT_FREE;
         p->slots[best].state = SLOT_SHOWN;
+        gfx::texture_touch(p->slots[best].tex);
         p->shown = best;
         p->shown_frame = best_frame;
     }

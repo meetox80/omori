@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "adpcm.h"
 #include "crypto.h"
 #include "image.h"
 #include "jpeg.h"
@@ -18,6 +19,7 @@
 #include "node.h"
 #include "ogg.h"
 #include "pack.h"
+#include "target.h"
 #include "webm.h"
 #include "util.h"
 
@@ -275,6 +277,142 @@ static void test_texture(void) {
     CHECK(rd16(tb.data + 16) == 4);
     buf_free(&tb);
     img_free(big);
+}
+
+static uint32_t layout_texel(TexLayout layout, const uint8_t* raw, int x, int y, int stride, int rows) {
+    const uint8_t* p;
+    switch (layout) {
+        case TEX_PSP: {
+            size_t bw = (size_t)stride * 4, xb = (size_t)x * 4;
+            p = raw + ((size_t)(y / 8) * (bw / 16) + xb / 16) * 128 + (size_t)(y % 8) * 16 + xb % 16;
+            return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+        }
+        case TEX_PICA: {
+            int row = rows - 1 - y, m = 0;
+            for (int i = 0; i < 3; i++) m |= ((x >> i) & 1) << (2 * i) | ((row >> i) & 1) << (2 * i + 1);
+            p = raw + (((size_t)(row >> 3) * (size_t)(stride >> 3) + (size_t)(x >> 3)) * 64 + (size_t)m) * 4;
+            return (uint32_t)p[3] | (uint32_t)p[2] << 8 | (uint32_t)p[1] << 16 | (uint32_t)p[0] << 24;
+        }
+        case TEX_GX: {
+            const uint8_t* tile = raw + ((size_t)(y >> 2) * (size_t)(stride >> 2) + (size_t)(x >> 2)) * 64;
+            size_t at = (size_t)((y & 3) * 4 + (x & 3)) * 2;
+            return (uint32_t)tile[at + 1] | (uint32_t)tile[32 + at] << 8 | (uint32_t)tile[32 + at + 1] << 16 | (uint32_t)tile[at] << 24;
+        }
+        case TEX_ARGB:
+            p = raw + ((size_t)y * stride + x) * 4;
+            return (uint32_t)p[1] | (uint32_t)p[2] << 8 | (uint32_t)p[3] << 16 | (uint32_t)p[0] << 24;
+        case TEX_GS: {
+            p = raw + ((size_t)y * stride + x) * 4;
+            int a = p[3] >= 128 ? 255 : (p[3] * 255 + 64) / 128;
+            return (uint32_t)(p[0] * a / 255) | (uint32_t)(p[1] * a / 255) << 8 | (uint32_t)(p[2] * a / 255) << 16 | (uint32_t)a << 24;
+        }
+        default:
+            p = raw + ((size_t)y * stride + x) * 4;
+            return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+    }
+}
+
+static void test_layouts(void) {
+    Image* img = img_new(70, 37);
+    uint32_t s = 7;
+    for (int i = 0; i < 70 * 37; i++) {
+        uint8_t* p = img->px + i * 4;
+        s = s * 1103515245u + 12345u;
+        p[3] = (uint8_t)(i % 5 == 0 ? 255 : (s >> 16));
+        for (int c = 0; c < 3; c++) {
+            s = s * 1103515245u + 12345u;
+            p[c] = (uint8_t)(((s >> 16) & 255) * p[3] / 255);
+        }
+    }
+    const Target* keep = g_target;
+    for (int id = 0; id < TARGET_COUNT; id++) {
+        const Target* t = target_get((TargetId)id);
+        target_set(t);
+        Buf out = {0};
+        CHECK(tex_encode(img, 70, 37, &out));
+        CHECK(rd16(out.data + 16) == 1);
+        CHECK(out.data[6] == (t->layout == TEX_LINEAR ? 0 : 1));
+        const uint8_t* e = out.data + 20;
+        int stride = rd16(e + 8), rows = rd16(e + 10);
+        uint32_t off = rd32(e + 12), csize = rd32(e + 16), rsize = rd32(e + 20);
+        CHECK(rsize == (uint32_t)stride * (uint32_t)rows * 4 && stride >= 70 && rows >= 37);
+        if (t->layout == TEX_PICA) CHECK(stride == 128 && rows == 64);
+        if (t->layout == TEX_GX) CHECK(stride % 4 == 0 && rows % 4 == 0);
+        uint8_t* raw = xmalloc(rsize);
+        mz_ulong rl = rsize;
+        CHECK(mz_uncompress(raw, &rl, out.data + off, csize) == MZ_OK && rl == rsize);
+        int ok = 1;
+        for (int y = 0; y < 37 && ok; y++) {
+            for (int x = 0; x < 70 && ok; x++) {
+                uint32_t got = layout_texel(t->layout, raw, x, y, stride, rows);
+                const uint8_t* want = img->px + ((size_t)y * 70 + x) * 4;
+                for (int c = 0; c < 4; c++) {
+                    int d = (int)((got >> (c * 8)) & 255) - want[c];
+                    if (d < 0) d = -d;
+                    if (d > (t->layout == TEX_GS ? 4 : 0)) ok = 0;
+                }
+            }
+        }
+        CHECK(ok);
+        free(raw);
+        buf_free(&out);
+    }
+    target_set(target_get(TARGET_3DS));
+    Image* big = img_new(700, 600);
+    Buf tb = {0};
+    CHECK(tex_encode(big, 700, 600, &tb));
+    CHECK(rd16(tb.data + 16) == 6);
+    for (int k = 0; k < rd16(tb.data + 16); k++) {
+        const uint8_t* c = tb.data + 20 + k * 24;
+        int cw = rd16(c + 4), ch = rd16(c + 6), cs = rd16(c + 8), cr = rd16(c + 10);
+        CHECK(cs >= cw && cr >= ch && !(cs & (cs - 1)) && !(cr & (cr - 1)) && cs <= 512 && cr <= 512);
+    }
+    buf_free(&tb);
+    img_free(big);
+    img_free(img);
+    target_set(keep);
+}
+
+static void test_3dsx_pack(void) {
+    Buf in = {0};
+    buf_put(&in, "3DSX", 4);
+    buf_u16(&in, 0x20);
+    buf_u16(&in, 8);
+    buf_u32(&in, 0);
+    buf_u32(&in, 0);
+    buf_u32(&in, 4);
+    buf_u32(&in, 4);
+    buf_u32(&in, 8);
+    buf_u32(&in, 4);
+    buf_u32(&in, 1);
+    buf_u32(&in, 0);
+    buf_u32(&in, 0);
+    buf_u32(&in, 0);
+    buf_u32(&in, 0);
+    buf_u32(&in, 1);
+    buf_put(&in, "codeconsdata", 12);
+    buf_put(&in, "rel1rel2", 8);
+    size_t body_len = in.len - 0x20;
+    buf_put(&in, "trailing", 8);
+    Exe3dsx x;
+    CHECK(x3dsx_read(in.data, in.len, &x));
+    CHECK(x.body.len == body_len);
+    Buf smdh = {0};
+    buf_put(&smdh, "SMDH", 4);
+    buf_zero(&smdh, 0x36C0 - 4);
+    FILE* f = tmpfile();
+    CHECK(f != NULL);
+    uint64_t pack_at = 0;
+    CHECK(x3dsx_write(&x, &smdh, f, &pack_at));
+    CHECK(pack_at % 16 == 0 && (uint64_t)ftell(f) == pack_at);
+    fseek(f, 0, SEEK_SET);
+    uint8_t h[0x2C];
+    CHECK(fread(h, 1, sizeof(h), f) == sizeof(h));
+    CHECK(!memcmp(h, "3DSX", 4) && rd16(h + 4) == 0x2C && rd32(h + 0x24) == 0x36C0 && rd32(h + 0x28) == pack_at);
+    fclose(f);
+    x3dsx_free(&x);
+    buf_free(&smdh);
+    buf_free(&in);
 }
 
 static void test_pbp_pack(void) {
@@ -658,8 +796,76 @@ static void test_jpeg(void) {
     free(rgb);
 }
 
+static double adpcm_snr(const int16_t* pcm, uint32_t frames, int ch, int* seek_ok, Buf* enc) {
+    const uint8_t* h = enc->data;
+    uint32_t every = (uint32_t)(h[6] | (h[7] << 8));
+    uint32_t data_at = rd32(h + 28);
+    uint32_t blocks = (frames + ADPCM_BLOCK_FRAMES - 1) / ADPCM_BLOCK_FRAMES;
+    int32_t h1[2] = {0, 0}, h2[2] = {0, 0};
+    int16_t out[ADPCM_BLOCK_FRAMES * 2];
+    double sig = 0, noise = 0;
+    *seek_ok = enc->len == data_at + (size_t)blocks * ADPCM_BLOCK_BYTES * (size_t)ch;
+    for (uint32_t b = 0; b < blocks && *seek_ok; b++) {
+        if (b % every == 0) {
+            const uint8_t* t = h + ADPCM_HEADER_BYTES + (size_t)(b / every) * (size_t)ch * 4;
+            for (int c = 0; c < ch; c++) {
+                int16_t a = (int16_t)(t[c * 4] | (t[c * 4 + 1] << 8)), z = (int16_t)(t[c * 4 + 2] | (t[c * 4 + 3] << 8));
+                if (a != h1[c] || z != h2[c]) *seek_ok = 0;
+            }
+        }
+        for (int c = 0; c < ch; c++) adpcm_decode_block(h + data_at + ((size_t)b * (size_t)ch + (size_t)c) * ADPCM_BLOCK_BYTES, &h1[c], &h2[c], out + c, ch);
+        for (int i = 0; i < ADPCM_BLOCK_FRAMES && b * ADPCM_BLOCK_FRAMES + (uint32_t)i < frames; i++) {
+            for (int c = 0; c < ch; c++) {
+                double x = pcm[(size_t)(b * ADPCM_BLOCK_FRAMES + (uint32_t)i) * (size_t)ch + (size_t)c];
+                double d = out[i * ch + c] - x;
+                sig += x * x;
+                noise += d * d;
+            }
+        }
+    }
+    return noise > 0 ? 10 * log10(sig / noise) : 200;
+}
+
+static void test_adpcm(void) {
+    uint32_t frames = 44100 * 3 + 17;
+    int16_t* pcm = xmalloc((size_t)frames * 2 * sizeof(int16_t));
+    uint32_t seed = 12345;
+    for (uint32_t i = 0; i < frames; i++) {
+        double t = i / 44100.0;
+        seed = seed * 1664525u + 1013904223u;
+        double n = ((int32_t)(seed >> 8) - (1 << 23)) / (double)(1 << 23);
+        double l = 9000 * sin(2 * M_PI * 220 * t) + 5000 * sin(2 * M_PI * 1375 * t) + 2500 * sin(2 * M_PI * 6100 * t) + 300 * n;
+        double r = 12000 * sin(2 * M_PI * 330 * t + 1) * (0.5 + 0.5 * sin(2 * M_PI * 0.7 * t)) + 300 * n;
+        pcm[i * 2] = (int16_t)l;
+        pcm[i * 2 + 1] = (int16_t)r;
+    }
+    Buf enc = {0};
+    CHECK(adpcm_encode(pcm, frames, 2, 44100, 1000, 90000, &enc));
+    CHECK(enc.len > ADPCM_HEADER_BYTES && !memcmp(enc.data, "OADP", 4) && enc.data[4] == 1 && enc.data[5] == 2);
+    CHECK(rd32(enc.data + 8) == 44100 && rd32(enc.data + 12) == frames && rd32(enc.data + 16) == 1000 && rd32(enc.data + 20) == 90000);
+    int seek_ok = 0;
+    double snr = adpcm_snr(pcm, frames, 2, &seek_ok, &enc);
+    CHECK(seek_ok);
+    CHECK(snr > 55);
+    printf("adpcm tones snr %.1f dB\n", snr);
+    for (uint32_t i = 0; i < frames; i++) pcm[i] = (int16_t)((i / 50) % 2 ? 32767 : -32768);
+    CHECK(adpcm_encode(pcm, frames, 1, 22050, -1, 0, &enc));
+    CHECK((int32_t)rd32(enc.data + 16) == -1 && rd32(enc.data + 20) == 0);
+    snr = adpcm_snr(pcm, frames, 1, &seek_ok, &enc);
+    CHECK(seek_ok && snr > 40);
+    printf("adpcm square snr %.1f dB\n", snr);
+    memset(pcm, 0, (size_t)frames * sizeof(int16_t));
+    CHECK(adpcm_encode(pcm, frames, 1, 22050, -1, 0, &enc));
+    snr = adpcm_snr(pcm, frames, 1, &seek_ok, &enc);
+    CHECK(seek_ok && snr >= 200);
+    buf_free(&enc);
+    free(pcm);
+}
+
 int main(void) {
     test_crypto();
+    test_layouts();
+    test_3dsx_pack();
     test_json_vbin();
     test_scripts();
     test_rx();
@@ -668,6 +874,7 @@ int main(void) {
     test_pbp_pack();
     test_webm();
     test_ogg();
+    test_adpcm();
     test_jpeg();
     printf("%d checks, %d failed\n", g_run, g_fail);
     return g_fail ? 1 : 0;

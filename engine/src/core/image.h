@@ -28,9 +28,9 @@ struct Image {
 
 namespace images {
 
-constexpr float SCALE = 0.5625f;
-constexpr float OFFSET_X = 60.0f;
-constexpr float OFFSET_Y = 1.0f;
+constexpr float SCALE = profile::SCALE;
+constexpr float OFFSET_X = profile::OFFSET_X;
+constexpr float OFFSET_Y = profile::OFFSET_Y;
 
 Image* load_data(const std::string& rel);
 std::string resolve(const std::string& folder, const std::string& name, const char* ext);

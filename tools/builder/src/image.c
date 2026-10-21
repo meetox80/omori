@@ -301,23 +301,126 @@ Image* img_resize(const Image* img, int w, int h, Filter filter) {
 static int py_round(double v) { return (int)rint(v); }
 
 void tex_scaled_size(int w, int h, int* ow, int* oh) {
-    *ow = py_round(w * TEX_SCALE);
-    *oh = py_round(h * TEX_SCALE);
+    *ow = py_round(w * g_target->tex_scale);
+    *oh = py_round(h * g_target->tex_scale);
     if (*ow < 1) *ow = 1;
     if (*oh < 1) *oh = 1;
 }
 
-static int split_sizes(int n, int* out) {
+static int pow2_at_least(int n) {
+    int p = 8;
+    while (p < n) p <<= 1;
+    return p;
+}
+
+static int split_sizes(int n, int block, int* out) {
     int c = 0;
+    int max = g_target->max_tex;
+    if (block > 0 && block <= max && n > block && n % block == 0 && n / block <= 64) {
+        for (; c < n / block; c++) out[c] = block;
+        return c;
+    }
     while (n > 0) {
-        if (n <= MAX_TEX) {
+        if (g_target->layout == TEX_PICA) {
+            if (n >= max) {
+                out[c++] = max;
+                n -= max;
+                continue;
+            }
+            int p = pow2_at_least(n);
+            if (p <= 128 || p - n <= n / 4) {
+                out[c++] = n;
+                break;
+            }
+            out[c++] = p / 2;
+            n -= p / 2;
+            continue;
+        }
+        if (n <= max) {
             out[c++] = n;
             break;
         }
-        out[c++] = MAX_TEX;
-        n -= MAX_TEX;
+        out[c++] = max;
+        n -= max;
     }
     return c;
+}
+
+static void chunk_extent(int pw, int ph, int* stride, int* rows) {
+    switch (g_target->layout) {
+        case TEX_PSP:
+            *stride = (pw + 15) / 16 * 16;
+            *rows = (ph + 7) / 8 * 8;
+            break;
+        case TEX_PICA:
+            *stride = pow2_at_least(pw);
+            *rows = pow2_at_least(ph);
+            break;
+        case TEX_GX:
+            *stride = (pw + 3) / 4 * 4;
+            *rows = (ph + 3) / 4 * 4;
+            break;
+        case TEX_GS:
+            *stride = (pw + 3) / 4 * 4;
+            *rows = ph;
+            break;
+        default:
+            *stride = (pw + 15) / 16 * 16;
+            *rows = ph;
+            break;
+    }
+}
+
+static int morton8(int x, int y) {
+    int r = 0;
+    for (int i = 0; i < 3; i++) r |= ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1);
+    return r;
+}
+
+static void put_texel(uint8_t* raw, int stride, int rows, int c, int r, const uint8_t* s) {
+    switch (g_target->layout) {
+        case TEX_PSP: {
+            size_t bw = (size_t)stride * 4, col = (size_t)c * 4;
+            uint8_t* d = raw + (((size_t)r / 8 * (bw / 16) + col / 16) * 8 + (size_t)r % 8) * 16 + col % 16;
+            memcpy(d, s, 4);
+            break;
+        }
+        case TEX_PICA: {
+            int row = rows - 1 - r;
+            uint8_t* d = raw + (((size_t)(row >> 3) * (size_t)(stride >> 3) + (size_t)(c >> 3)) * 64 + (size_t)morton8(c & 7, row & 7)) * 4;
+            d[0] = s[3];
+            d[1] = s[2];
+            d[2] = s[1];
+            d[3] = s[0];
+            break;
+        }
+        case TEX_GX: {
+            uint8_t* tile = raw + ((size_t)(r >> 2) * (size_t)(stride >> 2) + (size_t)(c >> 2)) * 64;
+            size_t at = (size_t)((r & 3) * 4 + (c & 3)) * 2;
+            tile[at] = s[3];
+            tile[at + 1] = s[0];
+            tile[32 + at] = s[1];
+            tile[32 + at + 1] = s[2];
+            break;
+        }
+        case TEX_ARGB: {
+            uint8_t* d = raw + ((size_t)r * stride + c) * 4;
+            d[0] = s[3];
+            d[1] = s[0];
+            d[2] = s[1];
+            d[3] = s[2];
+            break;
+        }
+        case TEX_GS: {
+            uint8_t* d = raw + ((size_t)r * stride + c) * 4;
+            d[0] = s[0];
+            d[1] = s[1];
+            d[2] = s[2];
+            d[3] = (uint8_t)((s[3] * 128 + 127) / 255);
+            break;
+        }
+        default: memcpy(raw + ((size_t)r * stride + c) * 4, s, 4); break;
+    }
 }
 
 typedef struct {
@@ -326,12 +429,73 @@ typedef struct {
     uint32_t raw_len;
 } Chunk;
 
+static Image* to_straight(const Image* pm) {
+    int w = pm->w, h = pm->h;
+    size_t n = (size_t)w * (size_t)h;
+    Image* st = img_clone(pm);
+    uint8_t* known = xcalloc(n, 1);
+    for (size_t i = 0; i < n; i++) {
+        uint8_t* p = st->px + i * 4;
+        int a = p[3];
+        if (!a) continue;
+        known[i] = 1;
+        for (int c = 0; c < 3; c++) {
+            int v = (p[c] * 255 + a / 2) / a;
+            p[c] = (uint8_t)(v > 255 ? 255 : v);
+        }
+    }
+    uint8_t* next = xmalloc(n);
+    for (int pass = 0; pass < 4; pass++) {
+        memcpy(next, known, n);
+        int changed = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                size_t i = (size_t)y * w + x;
+                if (known[i]) continue;
+                int sum[3] = {0, 0, 0}, cnt = 0;
+                static const int dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
+                for (int k = 0; k < 4; k++) {
+                    int nx = x + dx[k], ny = y + dy[k];
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    size_t j = (size_t)ny * w + nx;
+                    if (!known[j]) continue;
+                    for (int c = 0; c < 3; c++) sum[c] += st->px[j * 4 + c];
+                    cnt++;
+                }
+                if (!cnt) continue;
+                for (int c = 0; c < 3; c++) st->px[i * 4 + c] = (uint8_t)((sum[c] + cnt / 2) / cnt);
+                next[i] = 1;
+                changed = 1;
+            }
+        }
+        memcpy(known, next, n);
+        if (!changed) break;
+    }
+    free(next);
+    free(known);
+    return st;
+}
+
+static void screen_frames(const Image* pm, int orig_w, int orig_h, int* bw, int* bh) {
+    *bw = *bh = 0;
+    if (g_target->layout != TEX_GS || orig_w % 640 || orig_h % 480 || (orig_w == 640 && orig_h == 480)) return;
+    int fw, fh;
+    tex_scaled_size(640, 480, &fw, &fh);
+    if (pm->w != orig_w / 640 * fw || pm->h != orig_h / 480 * fh) return;
+    *bw = fw;
+    *bh = fh;
+}
+
 int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
     int ws[64], hs[64];
-    int nw = split_sizes(pm->w, ws);
-    int nh = split_sizes(pm->h, hs);
+    int bw, bh;
+    screen_frames(pm, orig_w, orig_h, &bw, &bh);
+    int nw = split_sizes(pm->w, bw, ws);
+    int nh = split_sizes(pm->h, bh, hs);
     int nchunks = nw * nh;
     Chunk* chunks = xcalloc((size_t)nchunks, sizeof(Chunk));
+    Image* straight = g_target->layout == TEX_GS ? to_straight(pm) : NULL;
+    const Image* src = straight ? straight : pm;
     int ci = 0;
     int y = 0;
     for (int j = 0; j < nh; j++) {
@@ -339,23 +503,15 @@ int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
         int x = 0;
         for (int i = 0; i < nw; i++) {
             int pw = ws[i];
-            int stride = (pw + 15) / 16 * 16;
-            int rows = (ph + 7) / 8 * 8;
-            size_t bw = (size_t)stride * 4;
-            size_t raw_len = bw * (size_t)rows;
+            int stride, rows;
+            chunk_extent(pw, ph, &stride, &rows);
+            size_t raw_len = (size_t)stride * 4 * (size_t)rows;
             uint8_t* raw = xmalloc(raw_len);
             for (int r = 0; r < rows; r++) {
                 int sy = y + (r < ph ? r : ph - 1);
                 for (int c = 0; c < stride; c++) {
                     int sx = x + (c < pw ? c : pw - 1);
-                    const uint8_t* s = pm->px + ((size_t)sy * pm->w + sx) * 4;
-                    size_t lin = (size_t)r * bw + (size_t)c * 4;
-                    size_t row_in_block = lin / bw % 8;
-                    size_t col_byte = lin % bw;
-                    size_t by = (size_t)r / 8;
-                    size_t bx = col_byte / 16;
-                    size_t off = ((by * (bw / 16) + bx) * 8 + row_in_block) * 16 + col_byte % 16;
-                    memcpy(raw + off, s, 4);
+                    put_texel(raw, stride, rows, c, r, src->px + ((size_t)sy * src->w + sx) * 4);
                 }
             }
             mz_ulong cap = mz_compressBound((mz_ulong)raw_len);
@@ -366,6 +522,7 @@ int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
                 free(raw);
                 for (int k = 0; k < ci; k++) buf_free(&chunks[k].comp);
                 free(chunks);
+                img_free(straight);
                 return 0;
             }
             ch->comp.len = clen;
@@ -381,11 +538,12 @@ int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
         }
         y += ph;
     }
+    img_free(straight);
     size_t start = out->len;
     buf_put(out, "TTEX", 4);
-    buf_u8(out, 1);
+    buf_u8(out, (uint8_t)(g_target->layout == TEX_PICA ? 2 : 1));
     buf_u8(out, 0);
-    buf_u8(out, 1);
+    buf_u8(out, (uint8_t)(g_target->layout == TEX_LINEAR ? 0 : 1));
     buf_u8(out, 0);
     buf_u16(out, (uint16_t)pm->w);
     buf_u16(out, (uint16_t)pm->h);
@@ -477,5 +635,190 @@ int png_encode(const Image* img, int with_alpha, Buf* out) {
     for (size_t i = 0; i < n; i++) memcpy(rgb + i * 3, img->px + i * 4, 3);
     int ok = stbi_write_png_to_func(png_write_cb, out, img->w, img->h, 3, rgb, img->w * 3) != 0;
     free(rgb);
+    return ok;
+}
+
+typedef struct {
+    uint32_t rgb;
+    uint32_t count;
+} ColorCount;
+
+typedef struct {
+    int lo, hi;
+} ColorBox;
+
+static int cmp_u32(const void* a, const void* b) {
+    uint32_t x = *(const uint32_t*)a, y = *(const uint32_t*)b;
+    return x < y ? -1 : x > y;
+}
+
+static int g_sort_shift;
+
+static int cmp_channel(const void* a, const void* b) {
+    int x = (int)((((const ColorCount*)a)->rgb >> g_sort_shift) & 255), y = (int)((((const ColorCount*)b)->rgb >> g_sort_shift) & 255);
+    return x - y;
+}
+
+static int box_axis(const ColorCount* c, ColorBox b, int* range) {
+    int best = 0, best_range = -1;
+    for (int ch = 0; ch < 3; ch++) {
+        int lo = 255, hi = 0;
+        for (int i = b.lo; i < b.hi; i++) {
+            int v = (int)((c[i].rgb >> (ch * 8)) & 255);
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+        }
+        if (hi - lo > best_range) {
+            best_range = hi - lo;
+            best = ch;
+        }
+    }
+    *range = best_range;
+    return best;
+}
+
+static int build_palette(const Image* img, uint32_t* pal) {
+    size_t n = (size_t)img->w * img->h;
+    uint32_t* all = xmalloc(n * sizeof(uint32_t));
+    for (size_t i = 0; i < n; i++) all[i] = (uint32_t)img->px[i * 4] | (uint32_t)img->px[i * 4 + 1] << 8 | (uint32_t)img->px[i * 4 + 2] << 16;
+    qsort(all, n, sizeof(uint32_t), cmp_u32);
+    ColorCount* cc = xmalloc(n * sizeof(ColorCount));
+    int unique = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (unique && cc[unique - 1].rgb == all[i]) cc[unique - 1].count++;
+        else cc[unique++] = (ColorCount){all[i], 1};
+    }
+    free(all);
+    int count = 0;
+    if (unique <= 256) {
+        for (int i = 0; i < unique; i++) pal[count++] = cc[i].rgb;
+        free(cc);
+        return count;
+    }
+    ColorBox boxes[256];
+    boxes[0] = (ColorBox){0, unique};
+    count = 1;
+    while (count < 256) {
+        int pick = -1, pick_range = 0, pick_axis = 0;
+        for (int k = 0; k < count; k++) {
+            if (boxes[k].hi - boxes[k].lo < 2) continue;
+            int range;
+            int axis = box_axis(cc, boxes[k], &range);
+            if (range > pick_range) {
+                pick = k;
+                pick_range = range;
+                pick_axis = axis;
+            }
+        }
+        if (pick < 0) break;
+        ColorBox b = boxes[pick];
+        g_sort_shift = pick_axis * 8;
+        qsort(cc + b.lo, (size_t)(b.hi - b.lo), sizeof(ColorCount), cmp_channel);
+        uint64_t total = 0, acc = 0;
+        for (int i = b.lo; i < b.hi; i++) total += cc[i].count;
+        int mid = b.lo + 1;
+        for (int i = b.lo; i < b.hi - 1; i++) {
+            acc += cc[i].count;
+            mid = i + 1;
+            if (acc * 2 >= total) break;
+        }
+        boxes[pick] = (ColorBox){b.lo, mid};
+        boxes[count++] = (ColorBox){mid, b.hi};
+    }
+    for (int k = 0; k < count; k++) {
+        uint64_t sum[3] = {0, 0, 0}, w = 0;
+        for (int i = boxes[k].lo; i < boxes[k].hi; i++) {
+            for (int ch = 0; ch < 3; ch++) sum[ch] += (uint64_t)((cc[i].rgb >> (ch * 8)) & 255) * cc[i].count;
+            w += cc[i].count;
+        }
+        pal[k] = (uint32_t)((sum[0] + w / 2) / w) | (uint32_t)((sum[1] + w / 2) / w) << 8 | (uint32_t)((sum[2] + w / 2) / w) << 16;
+    }
+    free(cc);
+    return count;
+}
+
+static int nearest(const uint32_t* pal, int count, int r, int g, int b) {
+    int best = 0, best_d = 0x7FFFFFFF;
+    for (int i = 0; i < count; i++) {
+        int dr = r - (int)(pal[i] & 255), dg = g - (int)((pal[i] >> 8) & 255), db = b - (int)((pal[i] >> 16) & 255);
+        int d = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+        if (d < best_d) {
+            best_d = d;
+            best = i;
+            if (!d) break;
+        }
+    }
+    return best;
+}
+
+static void put_be32(Buf* b, uint32_t v) {
+    uint8_t x[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
+    buf_put(b, x, 4);
+}
+
+static void png_chunk(Buf* out, const char* type, const uint8_t* data, size_t len) {
+    put_be32(out, (uint32_t)len);
+    size_t start = out->len;
+    buf_put(out, type, 4);
+    if (len) buf_put(out, data, len);
+    put_be32(out, (uint32_t)mz_crc32(MZ_CRC32_INIT, out->data + start, len + 4));
+}
+
+int png_encode_indexed(const Image* img, Buf* out) {
+    uint32_t pal[256];
+    int count = build_palette(img, pal);
+    int w = img->w, h = img->h;
+    size_t row = (size_t)w + 1;
+    uint8_t* idx = xcalloc(row * (size_t)h, 1);
+    float* err = xcalloc((size_t)(w + 2) * 2 * 3, sizeof(float));
+    for (int y = 0; y < h; y++) {
+        float* cur = err + (size_t)(y & 1) * (w + 2) * 3;
+        float* nxt = err + (size_t)((y + 1) & 1) * (w + 2) * 3;
+        memset(nxt, 0, (size_t)(w + 2) * 3 * sizeof(float));
+        for (int x = 0; x < w; x++) {
+            const uint8_t* p = img->px + ((size_t)y * w + x) * 4;
+            int c[3];
+            for (int ch = 0; ch < 3; ch++) {
+                int v = (int)lrintf((float)p[ch] + cur[(x + 1) * 3 + ch]);
+                c[ch] = v < 0 ? 0 : v > 255 ? 255 : v;
+            }
+            int k = nearest(pal, count, c[0], c[1], c[2]);
+            idx[(size_t)y * row + 1 + x] = (uint8_t)k;
+            for (int ch = 0; ch < 3; ch++) {
+                float e = (float)(c[ch] - (int)((pal[k] >> (ch * 8)) & 255));
+                cur[(x + 2) * 3 + ch] += e * 7.0f / 16.0f;
+                nxt[x * 3 + ch] += e * 3.0f / 16.0f;
+                nxt[(x + 1) * 3 + ch] += e * 5.0f / 16.0f;
+                nxt[(x + 2) * 3 + ch] += e * 1.0f / 16.0f;
+            }
+        }
+    }
+    free(err);
+    mz_ulong cap = mz_compressBound((mz_ulong)(row * h));
+    uint8_t* z = xmalloc(cap);
+    mz_ulong zlen = cap;
+    int ok = mz_compress2(z, &zlen, idx, (mz_ulong)(row * h), 9) == MZ_OK;
+    free(idx);
+    if (ok) {
+        static const uint8_t sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+        buf_put(out, sig, 8);
+        Buf ihdr = {0};
+        put_be32(&ihdr, (uint32_t)w);
+        put_be32(&ihdr, (uint32_t)h);
+        const uint8_t tail[5] = {8, 3, 0, 0, 0};
+        buf_put(&ihdr, tail, 5);
+        png_chunk(out, "IHDR", ihdr.data, ihdr.len);
+        buf_free(&ihdr);
+        uint8_t plte[768];
+        for (int i = 0; i < count; i++) {
+            plte[i * 3] = (uint8_t)(pal[i] & 255);
+            plte[i * 3 + 1] = (uint8_t)((pal[i] >> 8) & 255);
+            plte[i * 3 + 2] = (uint8_t)((pal[i] >> 16) & 255);
+        }
+        png_chunk(out, "PLTE", plte, (size_t)count * 3);
+        png_chunk(out, "IDAT", z, zlen);
+        png_chunk(out, "IEND", NULL, 0);
+    }
+    free(z);
     return ok;
 }

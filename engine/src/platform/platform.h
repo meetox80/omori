@@ -35,6 +35,7 @@ struct Options {
     int dump_audio = 0;
     std::string debug_tint;
     std::string debug_start;
+    int ballast_mb = 0;
 };
 
 bool init(int argc, char** argv);
@@ -62,6 +63,13 @@ bool debug_warp(int& map, int& x, int& y, int& d);
 bool debug_battle(int& troop);
 bool debug_eval(std::string& src);
 bool debug_reset();
+
+struct File;
+File* file_open(const std::string& path);
+size_t file_read(File* f, void* dst, size_t size);
+bool file_seek(File* f, int64_t pos);
+int64_t file_size(File* f);
+void file_close(File* f);
 
 struct Mutex;
 using ThreadFn = void (*)();

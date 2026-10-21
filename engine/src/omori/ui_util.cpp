@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "../core/regex.h"
+#include "../platform/gfx.h"
 #include "../js/vm.h"
 #include "../rpg/audio_manager.h"
 #include "../rpg/data.h"
@@ -132,11 +133,18 @@ std::string input_key_code(const std::string& input) {
 static const char* kIconType = "gamepadBlack24";
 static const double kSonyOffset = 72;
 
+static std::string nintendo_key(const std::string& key) {
+    if (key == "0") return "1";
+    if (key == "1") return "0";
+    return key;
+}
+
 void key_icon_rects(const std::string& key, IconRect& up, IconRect& down, const std::string& type) {
     std::string t = type.empty() ? std::string(kIconType) : type;
     const Value& data = system_lang()["InputIcons"][t.c_str()];
     const Value& rects = data["rects"];
-    const Value* kk = key.empty() ? nullptr : rects.find(key.c_str());
+    std::string lookup = profile::NINTENDO_BUTTONS && t == kIconType ? nintendo_key(key) : key;
+    const Value* kk = lookup.empty() ? nullptr : rects.find(lookup.c_str());
     bool found = kk && kk->is_obj();
     auto rd = [](const Value& r, IconRect& out) {
         out.x = r["x"].num();
@@ -151,7 +159,7 @@ void key_icon_rects(const std::string& key, IconRect& up, IconRect& down, const 
         up = IconRect{0, 0, 24, 24};
         down = IconRect{24, 0, 24, 24};
     }
-    if (t == "gamepadBlack24" && found) {
+    if (!profile::NINTENDO_BUTTONS && t == "gamepadBlack24" && found) {
         up.x -= kSonyOffset;
         down.x -= kSonyOffset;
     }

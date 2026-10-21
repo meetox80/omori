@@ -1,0 +1,9 @@
+float4 main(float2 vTexcoord : TEXCOORD0, uniform sampler2D uTexture, uniform float4 uSize, uniform float uScale) : COLOR
+{
+    float2 texel = vTexcoord * uSize.xy;
+    float2 base = floor(texel);
+    float2 d = texel - base - 0.5;
+    float r = 0.5 - 0.5 / uScale;
+    float2 f = (d - clamp(d, -r, r)) * uScale + 0.5;
+    return float4(tex2D(uTexture, (base + f) * uSize.zw).rgb, 1.0);
+}

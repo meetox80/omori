@@ -1,6 +1,7 @@
 #include "audio.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -18,11 +19,14 @@
 
 #define MINIMP3_IMPLEMENTATION
 #define MINIMP3_NO_SIMD
+#define MINIMP3_NO_STDIO
 #include "../../third_party/minimp3_ex.h"
 
 #include "../platform/audio_out.h"
 #include "../platform/platform.h"
+#include "bytes.h"
 #include "fs.h"
+#include "profile.h"
 
 namespace audio {
 
@@ -42,7 +46,7 @@ static long decode(OggVorbis_File* vf, char* buf, int len) {
 #ifdef USE_TREMOR
     return ov_read(vf, buf, len, &bs);
 #else
-    return ov_read(vf, buf, len, 0, 2, 1, &bs);
+    return ov_read(vf, buf, len, bytes::BIG_HOST ? 1 : 0, 2, 1, &bs);
 #endif
 }
 
@@ -53,10 +57,28 @@ struct Pcm {
     size_t frames = 0;
 };
 
+constexpr int ADPCM_FRAMES = 30;
+constexpr int ADPCM_BYTES = 32;
+constexpr int ADPCM_READ_BLOCKS = 64;
+
 struct Stream {
     OggVorbis_File vf;
     bool mp3 = false;
     bool wav = false;
+    bool adpcm = false;
+    int64_t adpcm_data = 0;
+    int64_t adpcm_blocks = 0;
+    int64_t adpcm_next = 0;
+    uint32_t adpcm_seek_every = 0;
+    std::vector<int16_t> adpcm_seek;
+    int32_t adpcm_h1[2] = {0, 0};
+    int32_t adpcm_h2[2] = {0, 0};
+    int16_t adpcm_pcm[ADPCM_FRAMES * 2];
+    int adpcm_have = 0;
+    int adpcm_pos = 0;
+    uint8_t adpcm_raw[ADPCM_READ_BLOCKS * ADPCM_BYTES * 2];
+    int adpcm_raw_len = 0;
+    int adpcm_raw_pos = 0;
     int64_t wav_data = 0;
     int wav_bits = 16;
     mp3dec_ex_t mp3d;
@@ -72,9 +94,14 @@ struct Stream {
     int64_t bytes = 0;
     bool loop = false;
     bool eof = false;
+    std::vector<int16_t> ring;
+    uint32_t ring_mask = 0;
+    std::atomic<uint32_t> head{0};
+    std::atomic<uint32_t> tail{0};
+    std::atomic<bool> ended{false};
     ~Stream() {
         if (!open) return;
-        if (wav) {
+        if (wav || adpcm) {
             fs::data_close(file);
         } else if (mp3) {
             mp3dec_ex_close(&mp3d);
@@ -88,7 +115,85 @@ struct Stream {
 static size_t mp3_read_cb(void* buf, size_t size, void* user) { return fs::data_read((fs::DataFile*)user, buf, size); }
 static int mp3_seek_cb(uint64_t pos, void* user) { return fs::data_seek((fs::DataFile*)user, (int64_t)pos, SEEK_SET); }
 
+static void adpcm_block(const uint8_t* b, int32_t& h1, int32_t& h2, int16_t* out, int stride) {
+    static const int K0[5] = {0, 60, 115, 98, 122};
+    static const int K1[5] = {0, 0, -52, -55, -60};
+    int f = b[0] >> 4;
+    int shift = b[0] & 15;
+    if (f > 4) f = 0;
+    if (shift > 8) shift = 8;
+    int32_t k0 = K0[f], k1 = K1[f];
+    int32_t a = h1, c = h2;
+    for (int i = 0; i < ADPCM_FRAMES; i++) {
+        int32_t v = (int32_t)(int8_t)b[2 + i] * (1 << shift) + ((a * k0 + c * k1 + 32) >> 6);
+        v = v < -32768 ? -32768 : v > 32767 ? 32767 : v;
+        out[i * stride] = (int16_t)v;
+        c = a;
+        a = v;
+    }
+    h1 = a;
+    h2 = c;
+}
+
+static bool adpcm_advance(Stream* s) {
+    if (s->adpcm_next >= s->adpcm_blocks) return false;
+    int ch = s->channels;
+    int step = ADPCM_BYTES * ch;
+    if (s->adpcm_raw_pos + step > s->adpcm_raw_len) {
+        int64_t left = s->adpcm_blocks - s->adpcm_next;
+        int want = (int)std::min<int64_t>(left, ADPCM_READ_BLOCKS) * step;
+        s->adpcm_raw_len = (int)fs::data_read(s->file, s->adpcm_raw, (size_t)want);
+        s->adpcm_raw_pos = 0;
+        if (s->adpcm_raw_len < step) return false;
+    }
+    for (int c = 0; c < ch; c++) adpcm_block(s->adpcm_raw + s->adpcm_raw_pos + c * ADPCM_BYTES, s->adpcm_h1[c], s->adpcm_h2[c], s->adpcm_pcm + c, ch);
+    s->adpcm_raw_pos += step;
+    s->adpcm_have = (int)std::min<int64_t>(ADPCM_FRAMES, s->total - s->adpcm_next * ADPCM_FRAMES);
+    s->adpcm_pos = 0;
+    s->adpcm_next++;
+    return s->adpcm_have > 0;
+}
+
+static int adpcm_seek(Stream* s, int64_t frame) {
+    if (frame < 0 || frame > s->total) return -1;
+    int ch = s->channels;
+    int64_t points = (int64_t)s->adpcm_seek.size() / (2 * ch);
+    int64_t k = points ? std::min<int64_t>(frame / ADPCM_FRAMES / s->adpcm_seek_every, points - 1) : 0;
+    for (int c = 0; c < ch; c++) {
+        s->adpcm_h1[c] = points ? s->adpcm_seek[(size_t)(k * ch + c) * 2] : 0;
+        s->adpcm_h2[c] = points ? s->adpcm_seek[(size_t)(k * ch + c) * 2 + 1] : 0;
+    }
+    s->adpcm_next = k * s->adpcm_seek_every;
+    s->adpcm_have = s->adpcm_pos = 0;
+    s->adpcm_raw_len = s->adpcm_raw_pos = 0;
+    if (fs::data_seek(s->file, s->adpcm_data + s->adpcm_next * ADPCM_BYTES * ch, SEEK_SET) != 0) return -1;
+    int64_t skip = frame - s->adpcm_next * ADPCM_FRAMES;
+    while (skip > 0) {
+        if (s->adpcm_pos == s->adpcm_have && !adpcm_advance(s)) break;
+        int n = (int)std::min<int64_t>(skip, s->adpcm_have - s->adpcm_pos);
+        s->adpcm_pos += n;
+        skip -= n;
+    }
+    return 0;
+}
+
+static long adpcm_read(Stream* s, char* buf, int len) {
+    int ch = s->channels;
+    int frames = len / (2 * ch);
+    int16_t* out = (int16_t*)buf;
+    int done = 0;
+    while (done < frames) {
+        if (s->adpcm_pos == s->adpcm_have && !adpcm_advance(s)) break;
+        int n = std::min(frames - done, s->adpcm_have - s->adpcm_pos);
+        std::memcpy(out + (size_t)done * ch, s->adpcm_pcm + (size_t)s->adpcm_pos * ch, (size_t)n * ch * 2);
+        s->adpcm_pos += n;
+        done += n;
+    }
+    return (long)done * ch * 2;
+}
+
 static int stream_seek(Stream* s, int64_t frame) {
+    if (s->adpcm) return adpcm_seek(s, frame);
     if (s->wav) {
         if (frame < 0 || frame > s->total) return -1;
         return fs::data_seek(s->file, s->wav_data + frame * s->channels * (s->wav_bits / 8), SEEK_SET);
@@ -98,6 +203,7 @@ static int stream_seek(Stream* s, int64_t frame) {
 }
 
 static long stream_decode(Stream* s, char* buf, int len) {
+    if (s->adpcm) return adpcm_read(s, buf, len);
     if (s->wav) {
         int bytes_per = s->wav_bits / 8;
         int frames = len / (2 * s->channels);
@@ -106,6 +212,7 @@ static long stream_decode(Stream* s, char* buf, int len) {
         if (frames <= 0) return 0;
         if (bytes_per == 2) {
             size_t got = fs::data_read(s->file, buf, (size_t)frames * s->channels * 2);
+            bytes::le16_to_host((int16_t*)buf, got / 2);
             return (long)got;
         }
         std::vector<uint8_t> raw((size_t)frames * s->channels);
@@ -128,7 +235,7 @@ struct Voice {
     std::string name;
     bool loop = false;
     bool active = false;
-    std::unique_ptr<Stream> stream;
+    std::shared_ptr<Stream> stream;
     std::shared_ptr<Pcm> pcm;
     std::shared_ptr<Pcm> capture;
     bool capture_done = false;
@@ -210,6 +317,41 @@ static std::unique_ptr<Stream> open_stream_rel(const std::string& rel, bool loop
     std::unique_ptr<Stream> s(new Stream());
     s->loop = loop;
     s->bytes = fs::data_size(f);
+    if (std::memcmp(magic, "OADP", 4) == 0) {
+        uint8_t h[32];
+        auto u32 = [&](int at) { return (uint32_t)h[at] | ((uint32_t)h[at + 1] << 8) | ((uint32_t)h[at + 2] << 16) | ((uint32_t)h[at + 3] << 24); };
+        bool ok = fs::data_read(f, h, sizeof(h)) == sizeof(h) && h[4] == 1 && h[5] >= 1 && h[5] <= 2;
+        uint32_t every = ok ? (uint32_t)(h[6] | (h[7] << 8)) : 0;
+        uint32_t points = ok ? u32(24) : 0;
+        uint32_t data_at = ok ? u32(28) : 0;
+        ok = ok && every > 0 && u32(8) > 0 && data_at == 32 + points * h[5] * 4;
+        if (ok) {
+            s->channels = h[5];
+            s->rate = (int)u32(8);
+            s->total = u32(12);
+            int32_t ls = (int32_t)u32(16), ll = (int32_t)u32(20);
+            if (ls >= 0 && ll > 0) {
+                s->loop_start = ls;
+                s->loop_end = (int64_t)ls + ll;
+            }
+            s->adpcm_seek_every = every;
+            std::vector<uint8_t> table((size_t)points * s->channels * 4);
+            ok = table.empty() || fs::data_read(f, table.data(), table.size()) == table.size();
+            s->adpcm_seek.resize(table.size() / 2);
+            for (size_t i = 0; ok && i < s->adpcm_seek.size(); i++) s->adpcm_seek[i] = (int16_t)(uint16_t)(table[i * 2] | (table[i * 2 + 1] << 8));
+            s->adpcm_data = data_at;
+            s->adpcm_blocks = (s->total + ADPCM_FRAMES - 1) / ADPCM_FRAMES;
+        }
+        if (!ok) {
+            fs::data_close(f);
+            plat::log("bad adpcm %s", rel.c_str());
+            return nullptr;
+        }
+        s->adpcm = true;
+        s->file = f;
+        s->open = true;
+        return s;
+    }
     if (std::memcmp(magic, "RIFF", 4) == 0) {
         uint8_t hdr[12];
         fs::data_read(f, hdr, 12);
@@ -351,6 +493,91 @@ static int read_stream(Stream* s, int16_t* out, int want) {
     return len;
 }
 
+constexpr uint32_t FEED_CHUNK = 1024;
+constexpr uint32_t FEED_LOW = FEED_CHUNK * 4;
+
+static plat::Mutex* g_feed_mutex = nullptr;
+static std::vector<std::shared_ptr<Stream>> g_feeds;
+static bool g_feeding = false;
+
+static uint32_t ring_take(Stream* s, int16_t* out, uint32_t max) {
+    uint32_t tail = s->tail.load(std::memory_order_relaxed);
+    uint32_t n = std::min(s->head.load(std::memory_order_acquire) - tail, max);
+    uint32_t at = tail & s->ring_mask;
+    uint32_t first = std::min(n, s->ring_mask + 1 - at);
+    std::memcpy(out, &s->ring[(size_t)at * 2], (size_t)first * 4);
+    std::memcpy(out + first * 2, s->ring.data(), (size_t)(n - first) * 4);
+    s->tail.store(tail + n, std::memory_order_release);
+    return n;
+}
+
+static bool feed(Stream* s) {
+    if (s->ended.load(std::memory_order_relaxed)) return false;
+    uint32_t head = s->head.load(std::memory_order_relaxed);
+    uint32_t space = s->ring_mask + 1 - (head - s->tail.load(std::memory_order_acquire));
+    if (space < FEED_CHUNK) return false;
+    static int16_t tmp[FEED_CHUNK * 2];
+    uint32_t got = (uint32_t)std::max(0, read_stream(s, tmp, (int)FEED_CHUNK));
+    uint32_t at = head & s->ring_mask;
+    uint32_t first = std::min(got, s->ring_mask + 1 - at);
+    std::memcpy(&s->ring[(size_t)at * 2], tmp, (size_t)first * 4);
+    std::memcpy(s->ring.data(), tmp + first * 2, (size_t)(got - first) * 4);
+    s->head.store(head + got, std::memory_order_release);
+    if (got < FEED_CHUNK) s->ended.store(true, std::memory_order_release);
+    return true;
+}
+
+static void feeder() {
+    std::vector<std::shared_ptr<Stream>> live, dead;
+    for (;;) {
+        plat::mutex_lock(g_feed_mutex);
+        for (size_t i = 0; i < g_feeds.size();) {
+            if (g_feeds[i].use_count() == 1) {
+                dead.push_back(std::move(g_feeds[i]));
+                g_feeds[i] = std::move(g_feeds.back());
+                g_feeds.pop_back();
+            } else {
+                live.push_back(g_feeds[i++]);
+            }
+        }
+        plat::mutex_unlock(g_feed_mutex);
+        dead.clear();
+        bool urgent = false;
+        for (auto& s : live) {
+            bool low = s->head.load(std::memory_order_relaxed) - s->tail.load(std::memory_order_acquire) < FEED_LOW;
+            for (int k = 0; k < (low ? 4 : 1) && feed(s.get()); k++) urgent = urgent || low;
+        }
+        live.clear();
+        plat::sleep_ms(urgent ? 1 : 8);
+    }
+}
+
+static void prepare_ahead(Stream* s) {
+    if (!g_feeding || !s) return;
+    try {
+        s->ring.assign((size_t)profile::AUDIO_AHEAD * 2, 0);
+        s->ring_mask = (uint32_t)profile::AUDIO_AHEAD - 1;
+    } catch (const std::bad_alloc&) {
+        s->ring.clear();
+        s->ring.shrink_to_fit();
+    }
+}
+
+static void track(Voice& v) {
+    if (!v.stream || v.stream->ring.empty()) return;
+    plat::mutex_lock(g_feed_mutex);
+    g_feeds.push_back(v.stream);
+    plat::mutex_unlock(g_feed_mutex);
+}
+
+static bool ready(const Voice& v, int frames) {
+    const Stream* s = v.stream.get();
+    if (v.pcm || !s || s->ring.empty() || s->ended.load(std::memory_order_acquire)) return true;
+    uint64_t need = (((uint64_t)v.frac + (uint64_t)frames * v.step) >> 16) + (v.primed ? 1 : 3);
+    uint64_t have = (uint64_t)(v.buf_len - v.buf_pos) + (s->head.load(std::memory_order_acquire) - s->tail.load(std::memory_order_relaxed));
+    return have >= need;
+}
+
 static bool refill(Voice& v) {
     if (v.pcm) {
         if (v.buf_start + v.buf_len >= (int64_t)v.pcm->frames) return false;
@@ -372,7 +599,7 @@ static bool refill(Voice& v) {
     if (!s) return false;
     v.buf_start += v.buf_len;
     v.buf_pos = 0;
-    v.buf_len = read_stream(s, v.buf, 1024);
+    v.buf_len = s->ring.empty() ? read_stream(s, v.buf, 1024) : (int)ring_take(s, v.buf, FEED_CHUNK);
     if (v.capture && !v.capture_done) {
         if (v.buf_len > 0) v.capture->data.insert(v.capture->data.end(), v.buf, v.buf + v.buf_len * 2);
         else v.capture_done = true;
@@ -391,7 +618,7 @@ static inline bool next_frame(Voice& v, int32_t& l, int32_t& r) {
 }
 
 static void mix_voice(Voice& v, int32_t* acc, int frames, int kind_vol) {
-    if (!v.active) return;
+    if (!v.active || !ready(v, frames)) return;
     int32_t base = (int32_t)(((int64_t)v.vol_q * std::clamp(kind_vol, 0, 100)) / 100);
     int32_t kl = (int32_t)(((int64_t)base * v.pan_l) >> 15);
     int32_t kr = (int32_t)(((int64_t)base * v.pan_r) >> 15);
@@ -565,6 +792,7 @@ static void open_job(const LoadJob& job, LoadResult& r, std::unique_ptr<Stream> 
     }
     r.pre.resize(1024 * 2);
     r.pre_len = read_stream(s.get(), r.pre.data(), 1024);
+    prepare_ahead(s.get());
     r.stream = std::move(s);
 }
 
@@ -654,6 +882,7 @@ static void install(LoadResult& r) {
     apply_params(v, v.pending_track, r.stream->rate);
     v.gain = v.pending_fade_in >= 0 ? 0 : v.pending_gain;
     v.stream = std::move(r.stream);
+    track(v);
     v.active = r.pre_len > 0;
     audio_out::unlock();
     if (v.pending_fade_in >= 0 && v.active) fade(v, v.pending_fade_in, 1, false);
@@ -692,6 +921,11 @@ void init() {
     if (plat::options().dump_audio > 0) {
         g_dump_cap = (size_t)plat::options().dump_audio * audio_out::RATE * 2;
         g_dump.reserve(g_dump_cap);
+    }
+    if constexpr (profile::AUDIO_AHEAD > 0) {
+        static_assert((profile::AUDIO_AHEAD & (profile::AUDIO_AHEAD - 1)) == 0, "AUDIO_AHEAD must be a power of two");
+        g_feed_mutex = plat::mutex_create();
+        g_feeding = audio_out::start_feeder(feeder);
     }
     audio_out::start(mix);
 }
@@ -901,6 +1135,7 @@ static void start_se_stream(LoadResult& r, const Track& t, int volume) {
     }
     slot->capture_done = false;
     slot->stream = std::move(r.stream);
+    track(*slot);
     slot->active = r.pre_len > 0;
     audio_out::unlock();
 }
@@ -1005,8 +1240,10 @@ static void reopen(Voice& v) {
     if (s->total > 0) frame %= s->total;
     if (stream_seek(s.get(), frame) != 0) frame = 0;
     s->next_frame = frame;
+    prepare_ahead(s.get());
     audio_out::lock();
     v.stream = std::move(s);
+    track(v);
     v.buf_start = frame;
     v.buf_len = 0;
     v.buf_pos = 0;
@@ -1217,6 +1454,7 @@ bool play_movie_audio(int slot, const std::string& rel, double pos) {
             }
         }
         pre_len = read_stream(s.get(), pre, 1024);
+        prepare_ahead(s.get());
     }
     audio_out::lock();
     Voice& v = g_movie[slot];
@@ -1236,6 +1474,7 @@ bool play_movie_audio(int slot, const std::string& rel, double pos) {
         v.vol_q = 32768;
         g_movie_rate[slot] = s->rate;
         v.stream = std::move(s);
+        track(v);
         v.active = pre_len > 0;
         ok = v.active;
     }

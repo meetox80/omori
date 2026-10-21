@@ -16,8 +16,9 @@ GitHub's Terms of Service allow users to view and fork public repositories on Gi
 receive any of the rights listed above: it may not be modified, redistributed, released or used outside of that
 GitHub feature.
 
-The EBOOT.PBP files the builder produces contain data from the user's own copy of the game. They are for the personal
-use of the person who owns that copy and may not be shared.
+The files the builder produces (EBOOT.PBP, OMORI.vpk, omori.3dsx, the Wii apps folder, OMORI.pkg, OMORI.iso and their
+data packs) contain data from the user's own copy of the game. They are for the personal use of the person who owns
+that copy and may not be shared.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
 WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE

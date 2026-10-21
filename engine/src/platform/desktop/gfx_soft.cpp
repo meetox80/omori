@@ -86,14 +86,8 @@ Texture* texture_create(int w, int h, int stride, int rows, Format fmt, bool swi
     const uint8_t* src = (const uint8_t*)pixels;
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            int xb = x * bpp;
-            size_t off;
-            if (swizzled) {
-                off = ((size_t)(y / 8) * (bw / 16) + (xb / 16)) * 128 + (y % 8) * 16 + (xb % 16);
-            } else {
-                off = (size_t)y * bw + xb;
-            }
-            t->px[(size_t)y * w + x] = expand(fmt, src + off, palette);
+            if (swizzled && fmt == Format::RGBA8888) t->px[(size_t)y * w + x] = stored_texel(src, x, y, stride, rows);
+            else t->px[(size_t)y * w + x] = expand(fmt, src + (size_t)y * bw + (size_t)x * bpp, palette);
         }
     }
     release(pixels);
@@ -140,12 +134,14 @@ static void init_plane(Surface s, int w, int h, int stride, bool rgb565) {
 }
 
 void init() {
+    constexpr int wide = SCREEN_W > 512 ? SCREEN_W : 512;
+    constexpr int half = HALF_W > 256 ? HALF_W : 256;
     init_plane(Surface::Screen, SCREEN_W, SCREEN_H, SCREEN_W, false);
-    init_plane(Surface::Grab, SCREEN_W, SCREEN_H, 512, false);
-    init_plane(Surface::Half0, HALF_W, HALF_H, 256, false);
-    init_plane(Surface::Half1, HALF_W, HALF_H, 256, false);
-    init_plane(Surface::Half2, HALF_W, HALF_H, 256, false);
-    init_plane(Surface::Wide, SCREEN_W, SCREEN_H, 512, true);
+    init_plane(Surface::Grab, SCREEN_W, SCREEN_H, wide, false);
+    init_plane(Surface::Half0, HALF_W, HALF_H, half, false);
+    init_plane(Surface::Half1, HALF_W, HALF_H, half, false);
+    init_plane(Surface::Half2, HALF_W, HALF_H, half, false);
+    init_plane(Surface::Wide, SCREEN_W, SCREEN_H, wide, profile::WIDE_565);
     g_cur = &g_planes[0];
     g_target = Surface::Screen;
 }

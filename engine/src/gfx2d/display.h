@@ -95,8 +95,11 @@ public:
 
 using DisplayPtr = std::shared_ptr<DisplayObject>;
 
+struct Iteration;
+
 class Container : public DisplayObject {
 public:
+    ~Container() override;
     std::vector<DisplayPtr> children;
     double layout_w = 640, layout_h = 480;
     bool sort_children = false;
@@ -113,6 +116,11 @@ public:
     void render(const RenderState& rs) override;
     void render_children(const RenderState& rs);
     std::function<bool(const DisplayPtr&, const DisplayPtr&)> comparator;
+
+private:
+    friend struct Iteration;
+    Iteration* iteration_ = nullptr;
+    void retire(const DisplayPtr& c);
 };
 
 class Sprite : public Container {

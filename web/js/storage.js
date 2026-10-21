@@ -17,7 +17,7 @@ async function writeText(root, name, text) {
   await writable.close();
 }
 
-export async function saveGame(files, listed, version, onProgress) {
+export async function saveGame(files, listed, version, key, onProgress) {
   const root = await storageRoot();
   if (!root) return null;
 
@@ -36,7 +36,7 @@ export async function saveGame(files, listed, version, onProgress) {
     }
     await writable.close();
 
-    const index = { version, savedAt: new Date().toISOString(), entries, listed };
+    const index = { version, key, savedAt: new Date().toISOString(), entries, listed };
     await writeText(root, INDEX_NAME, JSON.stringify(index));
     navigator.storage.persist?.().catch(() => {});
     return index;

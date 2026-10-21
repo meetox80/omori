@@ -67,6 +67,7 @@ void Container::remove_child(DisplayObject* c) {
     for (size_t i = 0; i < children.size(); i++) {
         if (children[i].get() == c) {
             children[i]->parent = nullptr;
+            retire(children[i]);
             children.erase(children.begin() + (long)i);
             return;
         }
@@ -77,12 +78,16 @@ DisplayPtr Container::remove_child_at(size_t index) {
     if (index >= children.size()) return nullptr;
     DisplayPtr c = children[index];
     c->parent = nullptr;
+    retire(c);
     children.erase(children.begin() + (long)index);
     return c;
 }
 
 void Container::remove_children() {
-    for (auto& c : children) c->parent = nullptr;
+    for (auto& c : children) {
+        c->parent = nullptr;
+        retire(c);
+    }
     children.clear();
 }
 
@@ -104,36 +109,65 @@ void Container::set_child_index(DisplayObject* c, size_t index) {
 
 namespace {
 
-std::deque<std::vector<DisplayPtr>> g_scratch;
+std::deque<std::vector<DisplayObject*>> g_scratch;
 size_t g_scratch_depth = 0;
 
-struct Snapshot {
-    std::vector<DisplayPtr>& items;
-    explicit Snapshot(const std::vector<DisplayPtr>& src) : items(acquire()) { items.assign(src.begin(), src.end()); }
-    ~Snapshot() {
+}
+
+struct Iteration {
+    Container* owner;
+    Iteration* outer;
+    std::vector<DisplayObject*>& items;
+    std::vector<DisplayPtr> retired;
+    explicit Iteration(Container& c) : owner(&c), outer(c.iteration_), items(acquire()) {
+        items.resize(c.children.size());
+        for (size_t i = 0; i < items.size(); i++) items[i] = c.children[i].get();
+        c.iteration_ = this;
+    }
+    ~Iteration() {
         items.clear();
         g_scratch_depth--;
+        if (owner) owner->iteration_ = outer;
     }
-    static std::vector<DisplayPtr>& acquire() {
+    Iteration(const Iteration&) = delete;
+    Iteration& operator=(const Iteration&) = delete;
+    Iteration* outermost() {
+        Iteration* it = this;
+        while (it->outer) it = it->outer;
+        return it;
+    }
+    static std::vector<DisplayObject*>& acquire() {
         if (g_scratch_depth >= g_scratch.size()) g_scratch.emplace_back();
         return g_scratch[g_scratch_depth++];
     }
 };
 
+void Container::retire(const DisplayPtr& c) {
+    if (iteration_) iteration_->outermost()->retired.push_back(c);
+}
+
+Container::~Container() {
+    if (!iteration_) return;
+    Iteration* keep = iteration_->outermost();
+    for (Iteration* it = iteration_; it; it = it->outer) it->owner = nullptr;
+    for (auto& c : children) {
+        c->parent = nullptr;
+        keep->retired.push_back(std::move(c));
+    }
 }
 
 void Container::update() {
-    if (!update_children_in_update) return;
-    Snapshot snap(children);
-    for (auto& c : snap.items) c->update();
+    if (!update_children_in_update || children.empty()) return;
+    Iteration snap(*this);
+    for (DisplayObject* c : snap.items) c->update();
 }
 
 void Container::render_children(const RenderState& rs) {
     if (comparator && children.size() > 1 && !std::is_sorted(children.begin(), children.end(), comparator))
         std::stable_sort(children.begin(), children.end(), comparator);
-    Snapshot snap(children);
-    std::vector<DisplayPtr>& snapshot = snap.items;
-    for (auto& c : snapshot) {
+    if (children.empty()) return;
+    Iteration snap(*this);
+    for (DisplayObject* c : snap.items) {
         if (!c->visible || c->alpha <= 0) continue;
         RenderState cs = rs;
         cs.world = rs.world.mul(c->local_matrix());

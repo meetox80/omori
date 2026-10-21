@@ -119,6 +119,9 @@ private:
     int last_start_x_ = INT_MIN, last_start_y_ = INT_MIN;
     int start_x_ = 0, start_y_ = 0;
     bool needs_repaint_ = true;
+    bool positions_valid_ = false;
+    int positioned_sx_ = 0, positioned_sy_ = 0;
+    double positioned_ox_ = 0, positioned_oy_ = 0;
     double tile_width_ = 32, tile_height_ = 32;
     int map_width_ = 0, map_height_ = 0;
     int tile_cols_ = 0, tile_rows_ = 0;

@@ -1,5 +1,7 @@
 #include "util.h"
 
+#include "progress.h"
+
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -10,6 +12,7 @@
 
 #ifdef _WIN32
 #include <direct.h>
+#include <io.h>
 #include <wchar.h>
 #include <windows.h>
 #else
@@ -62,6 +65,26 @@ int file_replace(const char* from, const char* to) {
     return ok;
 #else
     return rename(from, to) == 0;
+#endif
+}
+
+int file_truncate(FILE* f, uint64_t len) {
+    if (fflush(f) != 0) return 0;
+#ifdef _WIN32
+    return _chsize_s(_fileno(f), (__int64)len) == 0;
+#else
+    return ftruncate(fileno(f), (off_t)len) == 0;
+#endif
+}
+
+int file_remove(const char* path) {
+#ifdef _WIN32
+    wchar_t* w = utf8_to_wide(path);
+    int ok = _wremove(w) == 0;
+    free(w);
+    return ok;
+#else
+    return remove(path) == 0;
 #endif
 }
 
@@ -233,8 +256,20 @@ char* path_join(const char* a, const char* b) {
     return str_fmt("%s/%s", a, b);
 }
 
+static void (*g_log_hook)(const char* line);
+
+void set_log_hook(void (*fn)(const char* line)) { g_log_hook = fn; }
+
 void log_msg(const char* fmt, ...) {
     va_list ap;
+    if (g_log_hook) {
+        char line[2048];
+        va_start(ap, fmt);
+        vsnprintf(line, sizeof(line), fmt, ap);
+        va_end(ap);
+        g_log_hook(line);
+        return;
+    }
     va_start(ap, fmt);
     vprintf(fmt, ap);
     va_end(ap);
@@ -317,6 +352,8 @@ typedef struct {
     void* ctx;
     int count;
     int next;
+    int done;
+    int quiet;
 #ifdef _WIN32
     CRITICAL_SECTION lock;
 #elif defined(TB_THREADS)
@@ -324,40 +361,46 @@ typedef struct {
 #endif
 } JobQueue;
 
-static int job_take(JobQueue* q) {
+static int job_take(JobQueue* q, int finished) {
 #ifdef _WIN32
     EnterCriticalSection(&q->lock);
-    int i = q->next < q->count ? q->next++ : -1;
-    LeaveCriticalSection(&q->lock);
-#else
-#ifdef TB_THREADS
+#elif defined(TB_THREADS)
     pthread_mutex_lock(&q->lock);
 #endif
+    int done = finished ? ++q->done : q->done;
     int i = q->next < q->count ? q->next++ : -1;
-#ifdef TB_THREADS
+#ifdef _WIN32
+    LeaveCriticalSection(&q->lock);
+#elif defined(TB_THREADS)
     pthread_mutex_unlock(&q->lock);
 #endif
-#endif
+    if (finished && !q->quiet) progress_items(done, q->count);
     return i;
 }
 
 #ifdef _WIN32
 static DWORD WINAPI job_thread(LPVOID arg) {
     JobQueue* q = arg;
-    int i;
-    while ((i = job_take(q)) >= 0) q->fn(q->ctx, i);
+    int i = job_take(q, 0);
+    while (i >= 0) {
+        q->fn(q->ctx, i);
+        i = job_take(q, 1);
+    }
     return 0;
 }
 #elif defined(TB_THREADS)
 static void* job_thread(void* arg) {
     JobQueue* q = arg;
-    int i;
-    while ((i = job_take(q)) >= 0) q->fn(q->ctx, i);
+    int i = job_take(q, 0);
+    while (i >= 0) {
+        q->fn(q->ctx, i);
+        i = job_take(q, 1);
+    }
     return NULL;
 }
 #endif
 
-void run_jobs(JobFn fn, void* ctx, int count, int threads) {
+static void run_queue(JobFn fn, void* ctx, int count, int threads, int quiet) {
     if (threads < 1) threads = 1;
     if (threads > count) threads = count;
 #if !defined(_WIN32) && !defined(TB_THREADS)
@@ -366,6 +409,8 @@ void run_jobs(JobFn fn, void* ctx, int count, int threads) {
     if (threads <= 1) {
         for (int i = 0; i < count; i++) {
             fn(ctx, i);
+            if (quiet) continue;
+            progress_items(i + 1, count);
             if (count >= 50 && ((i + 1) % 100 == 0 || i + 1 == count)) log_msg("  progress %d/%d", i + 1, count);
         }
         return;
@@ -375,6 +420,8 @@ void run_jobs(JobFn fn, void* ctx, int count, int threads) {
     q.ctx = ctx;
     q.count = count;
     q.next = 0;
+    q.done = 0;
+    q.quiet = quiet;
 #ifdef _WIN32
     InitializeCriticalSection(&q.lock);
     HANDLE* hs = xmalloc(sizeof(HANDLE) * (size_t)threads);
@@ -392,6 +439,10 @@ void run_jobs(JobFn fn, void* ctx, int count, int threads) {
     pthread_mutex_destroy(&q.lock);
 #endif
 }
+
+void run_jobs(JobFn fn, void* ctx, int count, int threads) { run_queue(fn, ctx, count, threads, 0); }
+
+void run_jobs_quiet(JobFn fn, void* ctx, int count, int threads) { run_queue(fn, ctx, count, threads, 1); }
 
 int cpu_count(void) {
 #ifdef _WIN32
@@ -412,4 +463,37 @@ void sleep_ms(int ms) {
 #else
     usleep((useconds_t)ms * 1000);
 #endif
+}
+
+char* path_parent(const char* path) {
+    const char* a = strrchr(path, '/');
+    const char* b = strrchr(path, '\\');
+    const char* s = a > b ? a : b;
+    return s ? xstrndup(path, (size_t)(s - path)) : xstrdup(".");
+}
+
+int str_ends_with_ci(const char* s, const char* suffix) {
+    size_t a = strlen(s), b = strlen(suffix);
+    if (a < b) return 0;
+    for (size_t i = 0; i < b; i++) {
+        char x = s[a - b + i], y = suffix[i];
+        if (x >= 'A' && x <= 'Z') x = (char)(x + 32);
+        if (y >= 'A' && y <= 'Z') y = (char)(y + 32);
+        if (x != y) return 0;
+    }
+    return 1;
+}
+
+int file_copy_range(FILE* from, uint64_t at, uint64_t len, FILE* to) {
+    if (!file_seek(from, at)) return 0;
+    uint8_t* chunk = xmalloc(1 << 20);
+    int ok = 1;
+    while (len > 0 && ok) {
+        size_t want = len > (1u << 20) ? (1u << 20) : (size_t)len;
+        size_t got = fread(chunk, 1, want, from);
+        if (got != want || fwrite(chunk, 1, got, to) != got) ok = 0;
+        len -= got;
+    }
+    free(chunk);
+    return ok;
 }

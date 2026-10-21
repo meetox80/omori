@@ -10,7 +10,10 @@
 #include "movie.h"
 #include "node.h"
 #include "pack.h"
+#include "package.h"
+#include "progress.h"
 #include "script.h"
+#include "target.h"
 #include "ui.h"
 #include "util.h"
 #include "yaml.h"
@@ -20,12 +23,14 @@
 #include <shellapi.h>
 #endif
 
-extern const unsigned char embedded_engine[];
-extern const size_t embedded_engine_size;
-
 static const char* SUPPORTED[] = {"1.0.8", NULL};
-static const char* TITLE = "OMORI";
-static const char* UI_TITLE = "OMORI for PSP";
+static char g_ui_title[64] = "OMORI builder";
+#define UI_TITLE g_ui_title
+
+static void use_target(const Target* t) {
+    target_set(t);
+    snprintf(g_ui_title, sizeof(g_ui_title), "OMORI for %s", t->console);
+}
 
 typedef struct {
     char** items;
@@ -154,132 +159,36 @@ static int is_supported(const char* v) {
     return 0;
 }
 
-static int ends_with_ci(const char* s, const char* suf) {
-    size_t a = strlen(s), b = strlen(suf);
-    if (a < b) return 0;
-    for (size_t i = 0; i < b; i++) {
-        char x = s[a - b + i], y = suf[i];
-        if (x >= 'A' && x <= 'Z') x = (char)(x + 32);
-        if (y >= 'A' && y <= 'Z') y = (char)(y + 32);
-        if (x != y) return 0;
+static void target_names(char* out, size_t cap) {
+    out[0] = 0;
+    for (int i = 0; i < TARGET_COUNT; i++) {
+        size_t n = strlen(out);
+        snprintf(out + n, cap - n, "%s%s%s", i ? (i + 1 == TARGET_COUNT ? " or " : ", ") : "", target_get((TargetId)i)->name, i ? "" : " (default)");
     }
-    return 1;
-}
-
-static char* parent_dir(const char* path) {
-    const char* a = strrchr(path, '/');
-    const char* b = strrchr(path, '\\');
-    const char* s = a > b ? a : b;
-    return s ? xstrndup(path, (size_t)(s - path)) : xstrdup(".");
 }
 
 static void usage(void) {
+    char names[160];
+    target_names(names, sizeof(names));
     printf("usage: omori-builder [game folder] [options]\n"
            "\n"
-           "Builds a single EBOOT.PBP for PSP from your own copy of OMORI.\n"
-           "Run it without a game folder to find your Steam copy automatically or pick the folder in a window.\n"
+           "Builds OMORI for a console from your own copy of the game.\n"
+           "Run it without a game folder to find your Steam copy automatically and pick the console and folders in windows.\n"
            "\n"
            "options:\n"
-           "  -o, --out PATH         output folder (EBOOT.PBP goes to PATH/PSP/GAME/OMORI) or a path ending in .PBP (default: out)\n"
-           "  --engine FILE          use this engine EBOOT.PBP instead of the built-in one\n"
+           "  -t, --target NAME      console to build for: %s\n"
+           "  -o, --out PATH         output folder (default: out); the console's own folder layout is created inside it.\n"
+           "                         A path ending in .PBP (psp), .3dsx (3ds), .pkg (ps3) or .iso (ps2) writes that single file instead\n"
+           "  --engine FILE          use this engine file instead of the built-in one\n"
            "  --pak FILE             also write the data pack on its own (for the desktop test build)\n"
-           "  --pak-only FILE        write only the data pack, without an engine or EBOOT.PBP\n"
+           "  --pak-only FILE        write only the data pack, without an engine\n"
            "  --key KEY              the game's 32-character decryption key, if it cannot be found automatically\n"
            "  --jobs N               worker threads (default: all cores)\n"
            "  --movie NAME           convert only the movie NAME (for example final_duet.webm) into the output folder and exit\n"
            "  --movies-from DIR      take movies already converted with --movie from DIR instead of converting them again\n"
            "  --allow-any-version    convert even if the game version is not supported\n"
-           "  --update-engine FILE   replace only the engine inside an existing EBOOT.PBP and exit\n");
-}
-
-static int load_engine(const char* path, Pbp* out) {
-    if (path) {
-        Buf b = {0};
-        if (!file_read(path, &b)) {
-            fprintf(stderr, "error: cannot read %s\n", path);
-            return 0;
-        }
-        int ok = pbp_read(b.data, b.len, out);
-        buf_free(&b);
-        if (!ok) fprintf(stderr, "error: %s is not an EBOOT.PBP\n", path);
-        return ok;
-    }
-    if (!embedded_engine_size) {
-        fprintf(stderr, "error: this builder was compiled without the PSP engine; pass --engine\n");
-        return 0;
-    }
-    if (!pbp_read(embedded_engine, embedded_engine_size, out)) {
-        fprintf(stderr, "error: built-in engine is damaged\n");
-        return 0;
-    }
-    return 1;
-}
-
-static int copy_range(FILE* from, uint64_t at, uint64_t len, FILE* to) {
-    if (!file_seek(from, at)) return 0;
-    uint8_t* chunk = xmalloc(1 << 20);
-    int ok = 1;
-    while (len > 0 && ok) {
-        size_t want = len > (1u << 20) ? (1u << 20) : (size_t)len;
-        size_t got = fread(chunk, 1, want, from);
-        if (got != want || fwrite(chunk, 1, got, to) != got) ok = 0;
-        len -= got;
-    }
-    free(chunk);
-    return ok;
-}
-
-static uint32_t le32(const uint8_t* p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-
-static int update_engine(const char* target, const char* engine_path) {
-    FILE* f = file_open(target, "rb");
-    uint8_t h[40];
-    uint64_t size = 0;
-    if (!f || fread(h, 1, 40, f) != 40 || memcmp(h, "\0PBP", 4) != 0 || !file_length(f, &size)) {
-        if (f) fclose(f);
-        fprintf(stderr, "error: %s is not an EBOOT.PBP\n", target);
-        return 2;
-    }
-    uint64_t off[9];
-    for (int i = 0; i < 8; i++) off[i] = le32(h + 8 + i * 4);
-    off[8] = size;
-    Pbp cur;
-    memset(&cur, 0, sizeof(cur));
-    int ok = 1;
-    for (int i = 0; i < 8 && ok; i++) {
-        if (off[i] > off[i + 1]) ok = 0;
-    }
-    for (int i = 0; i < 6 && ok; i++) {
-        size_t len = (size_t)(off[i + 1] - off[i]);
-        buf_zero(&cur.part[i], len);
-        if (len && (!file_seek(f, off[i]) || fread(cur.part[i].data, 1, len, f) != len)) ok = 0;
-    }
-    Pbp eng;
-    memset(&eng, 0, sizeof(eng));
-    if (!ok || !load_engine(engine_path, &eng)) {
-        fclose(f);
-        pbp_free(&cur);
-        if (!ok) fprintf(stderr, "error: %s is damaged\n", target);
-        return 2;
-    }
-    cur.part[6] = eng.part[6];
-    memset(&eng.part[6], 0, sizeof(Buf));
-    char* tmp = str_fmt("%s.tmp", target);
-    FILE* o = file_open(tmp, "wb");
-    ok = o && pbp_write_head(&cur, o) && copy_range(f, off[7], size - off[7], o);
-    fclose(f);
-    if (o && fclose(o) != 0) ok = 0;
-    if (ok) ok = file_replace(tmp, target);
-    if (!ok) remove(tmp);
-    free(tmp);
-    pbp_free(&cur);
-    pbp_free(&eng);
-    if (!ok) {
-        fprintf(stderr, "error: cannot write %s\n", target);
-        return 2;
-    }
-    log_msg("engine updated in %s", target);
-    return 0;
+           "  --update-engine FILE   replace only the engine inside an existing build (the console's executable or package) and exit\n",
+           names);
 }
 
 static void fatal_dialog(const char* msg) {
@@ -317,6 +226,7 @@ static int check_copy(Game* g) {
 }
 
 typedef struct {
+    const Target* target;
     const char* engine;
     const char* pak;
     const char* key;
@@ -381,12 +291,17 @@ static char* choose_game(const Options* o) {
 }
 
 static int build(Game* g, const char* out, const Options* o, char** target_out) {
-    Pbp eng;
-    memset(&eng, 0, sizeof(eng));
-    if (!o->pak_only && !load_engine(o->engine, &eng)) return 2;
     Node* atlas = load_atlas(g);
-    char* target = o->pak_only ? xstrdup(o->pak) : ends_with_ci(out, ".pbp") ? xstrdup(out) : str_fmt("%s/PSP/GAME/OMORI/EBOOT.PBP", out);
-    char* dir = parent_dir(target);
+    Package* pkg = NULL;
+    if (!o->pak_only) {
+        pkg = package_open(out, o->engine, g, atlas);
+        if (!pkg) {
+            node_free(atlas);
+            return 2;
+        }
+    }
+    char* target = xstrdup(pkg ? package_data_path(pkg) : o->pak);
+    char* dir = path_parent(target);
     make_dirs(dir);
     free(dir);
     FILE* f = file_open(target, "wb");
@@ -394,45 +309,39 @@ static int build(Game* g, const char* out, const Options* o, char** target_out) 
         fprintf(stderr, "error: cannot write %s\n", target);
         free(target);
         node_free(atlas);
-        pbp_free(&eng);
+        package_free(pkg);
         return 2;
     }
     uint64_t pack_at = 0;
-    int ok = 1;
-    if (!o->pak_only) {
-        Pbp head;
-        memset(&head, 0, sizeof(head));
-        sfo_build(TITLE, &head.part[0]);
-        assets_build_icons(g, atlas, &head.part[1], &head.part[4]);
-        head.part[6] = eng.part[6];
-        memset(&eng.part[6], 0, sizeof(Buf));
-        ok = pbp_write_head(&head, f);
-        for (int i = 0; i < 7; i++) pack_at += head.part[i].len;
-        pack_at += 40;
-        pbp_free(&head);
-    }
-    pbp_free(&eng);
+    int ok = !pkg || package_write_head(pkg, f, &pack_at);
     Pack pack = {0};
     ok = ok && pack_open(&pack, f);
+    if (pkg) package_add_entries(pkg, &pack);
     log_msg("database");
+    progress_phase("database", NULL);
     Node* lang = NULL;
     Node* db = db_build(g, &pack, &lang);
     PackEntry* dbe = pack_add(&pack, "game.bin");
     vbin_dump(db, &dbe->data);
     pack_flush(&pack);
     log_msg("maps");
+    progress_phase("maps", NULL);
     log_msg("  %d maps", build_maps(g, node_get(db, "mapInfos"), &pack, o->jobs));
     pack_flush(&pack);
     log_msg("images");
+    progress_phase("images", NULL);
     log_msg("  %d images", assets_build_images(g, atlas, &pack, o->jobs));
     pack_flush(&pack);
     log_msg("audio");
-    log_msg("  %d files", assets_build_audio(g, &pack));
+    progress_phase("audio", g_target->id == TARGET_PS2 ? "Converting music and sounds" : NULL);
+    log_msg("  %d files", assets_build_audio(g, &pack, o->jobs));
     pack_flush(&pack);
     log_msg("movies");
+    progress_phase("movies", NULL);
     log_msg("  %d movies", assets_build_movies(g, &pack, o->jobs, o->movies_from));
     pack_flush(&pack);
     log_msg("fonts");
+    progress_phase("fonts", NULL);
     assets_build_fonts(g, db, lang, &pack, o->jobs);
     node_free(lang);
     node_free(db);
@@ -444,33 +353,79 @@ static int build(Game* g, const char* out, const Options* o, char** target_out) 
             failed++;
         }
     }
-    log_msg("eboot");
+    log_msg("write");
+    progress_phase("write", package_write_text());
     uint64_t pack_len = 0;
     ok = pack_finish(&pack, &pack_len) && ok;
     pack_free(&pack);
+    ok = ok && (!pkg || package_write_tail(pkg, f, pack_at, pack_len));
     ok = fclose(f) == 0 && ok;
-    if (ok && o->pak && !o->pak_only) {
+    if (ok && o->pak && pkg) {
         FILE* from = file_open(target, "rb");
         FILE* to = file_open(o->pak, "wb");
-        int copied = from && to && copy_range(from, pack_at, pack_len, to);
+        int copied = from && to && file_copy_range(from, pack_at, pack_len, to);
         if (from) fclose(from);
         if (to && fclose(to) != 0) copied = 0;
         if (!copied) fprintf(stderr, "error: cannot write %s\n", o->pak);
+    }
+    if (ok && pkg) {
+        log_msg("finish");
+        progress_phase("finish", package_finish_text());
+        ok = package_finish(pkg);
     }
     report();
     if (!ok) {
         fprintf(stderr, "error: cannot write %s\n", target);
         free(target);
+        package_free(pkg);
         return 2;
     }
-    log_msg("done (%.1f MB) -> %s", (pack_at + pack_len) / 1048576.0, target);
+    log_msg("done (%.1f MB) -> %s", (pack_at + pack_len) / 1048576.0, pkg ? package_summary(pkg) : target);
+    package_free(pkg);
     *target_out = target;
     return failed ? 1 : 0;
 }
 
-static int run_interactive(const Options* o) {
+static const Target* choose_target(void) {
+    const Target* avail[TARGET_COUNT];
+    const char* names[TARGET_COUNT];
+    int n = 0;
+    for (int i = 0; i < TARGET_COUNT; i++) {
+        if (!package_has_engine((TargetId)i)) continue;
+        avail[n] = target_get((TargetId)i);
+        names[n] = avail[n]->console;
+        n++;
+    }
+    if (n == 0) {
+        ui_message(UI_TITLE, "This builder was compiled without any console engine.", 1);
+        return NULL;
+    }
+    if (n == 1) return avail[0];
+    int pick = ui_choose(UI_TITLE, "Which console do you want to play OMORI on?", names, n);
+    return pick >= 0 ? avail[pick] : NULL;
+}
+
+static void gui_progress(void* ctx, double fraction, const char* text) {
+    (void)ctx;
+    ui_progress_update(fraction, text);
+}
+
+static void show_progress(void) {
+    if (ui_progress_open(UI_TITLE, "Getting ready...")) progress_start(gui_progress, NULL);
+    else progress_terminal();
+}
+
+static void hide_progress(void) {
+    progress_stop();
+    ui_progress_close();
+}
+
+static int run_interactive(Options* o) {
     ui_use_native(ui_native_available());
     set_fatal_hook(fatal_dialog);
+    if (!o->target) o->target = choose_target();
+    if (!o->target) return 3;
+    use_target(o->target);
     log_msg("%s builder", UI_TITLE);
     char* dir = choose_game(o);
     if (!dir) return 3;
@@ -482,20 +437,21 @@ static int run_interactive(const Options* o) {
         game_close(&g);
         return 3;
     }
-    char* out = ui_pick_folder(UI_TITLE, "Choose where to save it: your memory stick, or any folder (a PSP folder will be created inside)");
+    char* out = ui_pick_folder(UI_TITLE, package_out_prompt());
     if (!out) {
         game_close(&g);
         return 3;
     }
     char* target = NULL;
+    show_progress();
     int rc = build(&g, out, o, &target);
+    hide_progress();
     if (target) {
-        char* m = str_fmt("Done!\n\nYour game is at:\n%s\n\nIf you picked your memory stick, it is ready to play. Otherwise copy the PSP folder from\n%s\nto the root of your memory stick.",
-                          target, out);
+        char* m = package_done_message(out);
         ui_message(UI_TITLE, m, 0);
         free(m);
     } else {
-        ui_message(UI_TITLE, "Building the EBOOT failed. Run the builder from a terminal to see the details.", 1);
+        ui_message(UI_TITLE, "The build failed. Run the builder from a terminal to see the details.", 1);
     }
     free(target);
     free(out);
@@ -521,10 +477,19 @@ int main(int argc, char** argv) {
     const char* game_dir = NULL;
     const char* out = "out";
     const char* update = NULL;
-    Options o = {NULL, NULL, NULL, cpu_count(), 0, 0, NULL, NULL};
+    Options o = {NULL, NULL, NULL, NULL, cpu_count(), 0, 0, NULL, NULL};
     for (int i = 1; i < argc; i++) {
         const char* a = argv[i];
         if ((!strcmp(a, "-o") || !strcmp(a, "--out")) && i + 1 < argc) out = argv[++i];
+        else if ((!strcmp(a, "-t") || !strcmp(a, "--target")) && i + 1 < argc) {
+            o.target = target_find(argv[++i]);
+            if (!o.target) {
+                char names[160];
+                target_names(names, sizeof(names));
+                fprintf(stderr, "error: unknown target %s (use %s)\n", argv[i], names);
+                return 2;
+            }
+        }
         else if (!strcmp(a, "--engine") && i + 1 < argc) o.engine = argv[++i];
         else if (!strcmp(a, "--pak") && i + 1 < argc) o.pak = argv[++i];
         else if (!strcmp(a, "--key") && i + 1 < argc) o.key = argv[++i];
@@ -550,8 +515,9 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    if (update) return update_engine(update, o.engine);
+    if (update) return package_update_engine(update, o.engine);
     if (!game_dir) return run_interactive(&o);
+    use_target(o.target ? o.target : target_get(TARGET_PSP));
     Game g;
     if (!open_game(&g, game_dir, &o)) return 2;
     if (!check_copy(&g)) {
@@ -564,7 +530,9 @@ int main(int argc, char** argv) {
         return rc;
     }
     char* target = NULL;
+    progress_terminal();
     int rc = build(&g, out, &o, &target);
+    progress_stop();
     free(target);
     game_close(&g);
     sl_free(&g_errors);

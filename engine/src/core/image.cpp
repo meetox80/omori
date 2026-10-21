@@ -3,12 +3,14 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <list>
 #include <unordered_map>
 
 #include "../platform/platform.h"
+#include "bytes.h"
 #include "fs.h"
 
 Image::~Image() {
@@ -31,6 +33,14 @@ static uint64_t g_generation = 1;
 static size_t g_used = 0;
 static size_t g_budget = 20u << 20;
 static uint64_t g_tick = 0;
+static std::atomic<bool> g_urgent{false};
+
+constexpr uint32_t INFLATE_SLICE = 16384;
+constexpr int INFLATE_PACE_MS = 4;
+constexpr size_t PREFETCH_BYTES = 2u << 20;
+constexpr size_t NEIGHBOR_BYTES = 4u << 20;
+constexpr uint64_t PREFETCH_KEEP_TICKS = 600;
+constexpr uint64_t HEADER_KEEP_TICKS = 3600;
 
 static uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
@@ -59,13 +69,13 @@ static void free_decoded(Decoded& d) {
     d.chunks.clear();
 }
 
-static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* dst, uint32_t rsize) {
+static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* dst, uint32_t rsize, bool paced) {
     if (fs::data_seek(f, off, SEEK_SET) != 0) return false;
     z_stream zs{};
     if (inflateInit(&zs) != Z_OK) return false;
     uint8_t in[16384];
     zs.next_out = (Bytef*)dst;
-    zs.avail_out = rsize;
+    zs.avail_out = paced ? std::min(rsize, INFLATE_SLICE) : rsize;
     uint32_t left = csize;
     int ret = Z_OK;
     while (ret != Z_STREAM_END) {
@@ -80,6 +90,10 @@ static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* d
         }
         ret = inflate(&zs, Z_NO_FLUSH);
         if (ret != Z_OK && ret != Z_STREAM_END) break;
+        if (zs.avail_out == 0 && zs.total_out < rsize) {
+            if (!g_urgent.load(std::memory_order_relaxed)) plat::sleep_ms(INFLATE_PACE_MS);
+            zs.avail_out = std::min(rsize - (uint32_t)zs.total_out, INFLATE_SLICE);
+        }
     }
     bool ok = ret == Z_STREAM_END && zs.total_out == rsize;
     inflateEnd(&zs);
@@ -118,7 +132,10 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
     if (count > 1) {
         out.lazy = true;
         out.source = rel;
-        if (has_pal) out.palette.assign((const uint32_t*)pal, (const uint32_t*)pal + 256);
+        if (has_pal) {
+            out.palette.resize(256);
+            for (int k = 0; k < 256; k++) out.palette[(size_t)k] = bytes::le32(pal + k * 4);
+        }
         for (int k = 0; k < count; k++) {
             const uint8_t* e = &table[(size_t)k * 24];
             Decoded::Chunk c{};
@@ -157,7 +174,7 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
             make_room(rsize, true);
             c.pixels = gfx::alloc(rsize);
         }
-        if (!c.pixels || !inflate_range(f, off, csize, c.pixels, rsize)) {
+        if (!c.pixels || !inflate_range(f, off, csize, c.pixels, rsize, !main_thread)) {
             if (!c.pixels) out.oom = true;
             gfx::release(c.pixels);
             free_decoded(out);
@@ -167,7 +184,14 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
         c.palette = nullptr;
         if (has_pal) {
             c.palette = (uint32_t*)gfx::alloc(1024);
-            std::memcpy(c.palette, pal, 1024);
+            if (!c.palette) {
+                out.oom = true;
+                gfx::release(c.pixels);
+                free_decoded(out);
+                fs::data_close(f);
+                return out;
+            }
+            for (int k = 0; k < 256; k++) c.palette[k] = bytes::le32(pal + k * 4);
         }
         out.chunks.push_back(c);
     }
@@ -250,6 +274,8 @@ bool read_pixel(const Image* img, int px, int py, uint32_t* out) {
 }
 
 static void make_room(size_t need, bool force);
+static void* take_chunk(const std::string& source, size_t index);
+static void prefetch_neighbors(const Image* img, size_t index);
 
 gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     Image* img = const_cast<Image*>(cimg);
@@ -258,18 +284,21 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     if (c.tex || !img->lazy) return c.tex;
     size_t need = c.rsize + (img->palette.empty() ? 0 : 1024);
     make_room(need, false);
-    fs::DataFile* f = fs::open_data(img->source);
-    if (!f) return nullptr;
-    void* pixels = gfx::alloc(c.rsize);
+    void* pixels = take_chunk(img->source, index);
     if (!pixels) {
-        make_room(need, true);
+        fs::DataFile* f = fs::open_data(img->source);
+        if (!f) return nullptr;
         pixels = gfx::alloc(c.rsize);
-    }
-    bool ok = pixels && inflate_range(f, c.offset, c.csize, pixels, c.rsize);
-    fs::data_close(f);
-    if (!ok) {
-        gfx::release(pixels);
-        return nullptr;
+        if (!pixels) {
+            make_room(need, true);
+            pixels = gfx::alloc(c.rsize);
+        }
+        bool ok = pixels && inflate_range(f, c.offset, c.csize, pixels, c.rsize, false);
+        fs::data_close(f);
+        if (!ok) {
+            gfx::release(pixels);
+            return nullptr;
+        }
     }
     uint32_t* pal = nullptr;
     if (!img->palette.empty()) {
@@ -284,18 +313,19 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     size_t bytes = gfx::texture_bytes(c.tex);
     img->bytes += bytes;
     g_used += bytes;
+    prefetch_neighbors(img, index);
     return c.tex;
 }
-
-constexpr size_t HEAP_RESERVE = 5u << 20;
 
 static bool over_heap(size_t need, size_t freed) {
     size_t limit = plat::heap_limit();
     if (!limit) return false;
     size_t used = plat::heap_used();
     used = used > freed ? used - freed : 0;
-    return used + need + HEAP_RESERVE > limit;
+    return used + need + profile::HEAP_RESERVE > limit;
 }
+
+static void drop_chunks(const std::string* source);
 
 static void evict(size_t need) {
     size_t freed = 0;
@@ -303,11 +333,13 @@ static void evict(size_t need) {
         auto victim = g_cache.end();
         for (auto it = g_cache.begin(); it != g_cache.end(); ++it) {
             if (!it->second.img || it->second.pinned || it->second.last + 2 > g_tick) continue;
+            if (!it->second.img->bytes && it->second.last + HEADER_KEEP_TICKS > g_tick) continue;
             if (victim == g_cache.end() || it->second.last < victim->second.last) victim = it;
         }
         if (victim == g_cache.end()) return;
         g_used -= victim->second.img->bytes;
         freed += victim->second.img->bytes;
+        if (victim->second.img->lazy) drop_chunks(&victim->second.img->source);
         delete victim->second.img;
         g_cache.erase(victim);
         g_generation++;
@@ -320,6 +352,7 @@ static void make_room(size_t need, bool force) {
         evict(need);
         return;
     }
+    drop_chunks(nullptr);
     size_t saved = g_budget;
     g_budget = 0;
     evict(need);
@@ -333,16 +366,63 @@ static std::string g_working;
 static std::vector<std::pair<std::string, Decoded>> g_ready;
 static bool g_worker = false;
 
+struct ChunkJob {
+    std::string source;
+    size_t index = 0;
+    uint32_t offset = 0, csize = 0, rsize = 0;
+};
+
+struct ChunkReady {
+    std::string source;
+    size_t index;
+    uint32_t rsize;
+    void* pixels;
+    uint64_t tick;
+};
+
+static std::vector<ChunkJob> g_chunk_queue;
+static ChunkJob g_chunk_working;
+static bool g_chunk_busy = false;
+static std::vector<ChunkReady> g_chunk_ready;
+static size_t g_chunk_bytes = 0;
+
+static void* decode_chunk(const ChunkJob& job) {
+    fs::DataFile* f = fs::open_data(job.source);
+    if (!f) return nullptr;
+    void* pixels = gfx::alloc(job.rsize);
+    bool ok = pixels && inflate_range(f, job.offset, job.csize, pixels, job.rsize, true);
+    fs::data_close(f);
+    if (ok) return pixels;
+    gfx::release(pixels);
+    return nullptr;
+}
+
 static void worker() {
     for (;;) {
         std::string job;
+        ChunkJob chunk;
+        bool has_chunk = false;
         plat::mutex_lock(g_mutex);
         if (!g_queue.empty()) {
             job = g_queue.front();
             g_queue.erase(g_queue.begin());
             g_working = job;
+        } else if (!g_chunk_queue.empty()) {
+            chunk = g_chunk_queue.front();
+            g_chunk_queue.erase(g_chunk_queue.begin());
+            g_chunk_working = chunk;
+            g_chunk_busy = has_chunk = true;
         }
         plat::mutex_unlock(g_mutex);
+        if (has_chunk) {
+            void* pixels = decode_chunk(chunk);
+            plat::mutex_lock(g_mutex);
+            g_chunk_busy = false;
+            if (pixels) g_chunk_ready.push_back({chunk.source, chunk.index, chunk.rsize, pixels, 0});
+            else g_chunk_bytes -= chunk.rsize;
+            plat::mutex_unlock(g_mutex);
+            continue;
+        }
         if (job.empty()) {
             plat::sleep_ms(4);
             continue;
@@ -360,6 +440,163 @@ static void ensure_worker() {
     g_worker = true;
     g_mutex = plat::mutex_create();
     plat::start_thread(worker);
+}
+
+static void* take_chunk(const std::string& source, size_t index) {
+    if (!g_worker) return nullptr;
+    void* pixels = nullptr;
+    for (;;) {
+        plat::mutex_lock(g_mutex);
+        for (auto it = g_chunk_ready.begin(); it != g_chunk_ready.end(); ++it) {
+            if (it->index == index && it->source == source) {
+                pixels = it->pixels;
+                g_chunk_bytes -= it->rsize;
+                g_chunk_ready.erase(it);
+                break;
+            }
+        }
+        for (auto it = g_chunk_queue.begin(); it != g_chunk_queue.end(); ++it) {
+            if (it->index == index && it->source == source) {
+                g_chunk_bytes -= it->rsize;
+                g_chunk_queue.erase(it);
+                break;
+            }
+        }
+        bool working = g_chunk_busy && g_chunk_working.index == index && g_chunk_working.source == source;
+        plat::mutex_unlock(g_mutex);
+        if (pixels || !working) break;
+        g_urgent.store(true, std::memory_order_relaxed);
+        plat::sleep_ms(1);
+    }
+    g_urgent.store(false, std::memory_order_relaxed);
+    return pixels;
+}
+
+static bool chunk_known(const std::string& source, size_t index) {
+    if (g_chunk_busy && g_chunk_working.index == index && g_chunk_working.source == source) return true;
+    for (auto& j : g_chunk_queue) {
+        if (j.index == index && j.source == source) return true;
+    }
+    for (auto& r : g_chunk_ready) {
+        if (r.index == index && r.source == source) return true;
+    }
+    return false;
+}
+
+static void prefetch_neighbors(const Image* img, size_t index) {
+    ensure_worker();
+    const ImageChunk& c = img->chunks[index];
+    plat::mutex_lock(g_mutex);
+    for (size_t k = 0; k < img->chunks.size(); k++) {
+        const ImageChunk& n = img->chunks[k];
+        if (k == index || n.tex) continue;
+        if (n.x > c.x + c.w || c.x > n.x + n.w || n.y > c.y + c.h || c.y > n.y + n.h) continue;
+        if (chunk_known(img->source, k)) continue;
+        if (g_chunk_bytes + n.rsize > NEIGHBOR_BYTES || over_heap(g_chunk_bytes + n.rsize, 0)) break;
+        ChunkJob job;
+        job.source = img->source;
+        job.index = k;
+        job.offset = n.offset;
+        job.csize = n.csize;
+        job.rsize = n.rsize;
+        g_chunk_queue.insert(g_chunk_queue.begin(), job);
+        g_chunk_bytes += n.rsize;
+    }
+    plat::mutex_unlock(g_mutex);
+}
+
+static void drop_chunks(const std::string* source) {
+    if (!g_worker) return;
+    plat::mutex_lock(g_mutex);
+    for (auto it = g_chunk_ready.begin(); it != g_chunk_ready.end();) {
+        if (source && it->source != *source) {
+            ++it;
+            continue;
+        }
+        gfx::release(it->pixels);
+        g_chunk_bytes -= it->rsize;
+        it = g_chunk_ready.erase(it);
+    }
+    for (auto it = g_chunk_queue.begin(); it != g_chunk_queue.end();) {
+        if (source && it->source != *source) {
+            ++it;
+            continue;
+        }
+        g_chunk_bytes -= it->rsize;
+        it = g_chunk_queue.erase(it);
+    }
+    plat::mutex_unlock(g_mutex);
+}
+
+struct WarmImage {
+    std::string key;
+    std::vector<ChunkJob> jobs;
+};
+
+static std::vector<WarmImage> g_warm;
+
+static void warm_image(const std::string& rel, const Image* img) {
+    WarmImage w;
+    w.key = rel;
+    for (size_t k = 0; k < img->chunks.size(); k++) {
+        const ImageChunk& c = img->chunks[k];
+        ChunkJob job;
+        job.source = img->source;
+        job.index = k;
+        job.offset = c.offset;
+        job.csize = c.csize;
+        job.rsize = c.rsize;
+        w.jobs.push_back(job);
+    }
+    g_warm.push_back(std::move(w));
+}
+
+static void pump_warm() {
+    while (!g_warm.empty()) {
+        WarmImage& w = g_warm.front();
+        auto it = g_cache.find(w.key);
+        Image* img = it != g_cache.end() ? it->second.img : nullptr;
+        if (!img) {
+            g_warm.erase(g_warm.begin());
+            continue;
+        }
+        while (!w.jobs.empty()) {
+            const ChunkJob& job = w.jobs.front();
+            if (job.index >= img->chunks.size() || img->chunks[job.index].tex) {
+                w.jobs.erase(w.jobs.begin());
+                continue;
+            }
+            plat::mutex_lock(g_mutex);
+            bool known = chunk_known(job.source, job.index);
+            bool room = known || (g_chunk_bytes + job.rsize <= PREFETCH_BYTES && !over_heap(g_chunk_bytes + job.rsize, 0));
+            if (!known && room) {
+                g_chunk_queue.push_back(job);
+                g_chunk_bytes += job.rsize;
+            }
+            plat::mutex_unlock(g_mutex);
+            if (!room) return;
+            w.jobs.erase(w.jobs.begin());
+        }
+        g_warm.erase(g_warm.begin());
+    }
+}
+
+static void expire_chunks() {
+    if (!g_worker) return;
+    plat::mutex_lock(g_mutex);
+    for (auto it = g_chunk_ready.begin(); it != g_chunk_ready.end();) {
+        const std::string& src = it->source;
+        bool cached = src.size() > 4 && g_cache.count(src.substr(0, src.size() - 4));
+        if (!it->tick || cached) it->tick = g_tick;
+        if (g_tick - it->tick <= PREFETCH_KEEP_TICKS) {
+            ++it;
+            continue;
+        }
+        gfx::release(it->pixels);
+        g_chunk_bytes -= it->rsize;
+        it = g_chunk_ready.erase(it);
+    }
+    plat::mutex_unlock(g_mutex);
 }
 
 static void insert(const std::string& rel, Image* img) {
@@ -387,7 +624,9 @@ static void collect_ready(const std::string* want) {
             free_decoded(r.second);
             continue;
         }
-        insert(r.first, finish(r.second));
+        Image* img = finish(r.second);
+        insert(r.first, img);
+        if (img && img->lazy) warm_image(r.first, img);
     }
     (void)want;
 }
@@ -430,10 +669,15 @@ static bool wait_pending(const std::string& rel) {
         }
         plat::mutex_unlock(g_mutex);
         if (ready) {
+            g_urgent.store(false, std::memory_order_relaxed);
             collect_ready(&rel);
             return true;
         }
-        if (!pending) return false;
+        if (!pending) {
+            g_urgent.store(false, std::memory_order_relaxed);
+            return false;
+        }
+        g_urgent.store(true, std::memory_order_relaxed);
         plat::sleep_ms(1);
     }
 }
@@ -519,6 +763,8 @@ void trim() { evict(0); }
 void tick() {
     g_tick++;
     collect_ready(nullptr);
+    expire_chunks();
+    pump_warm();
 }
 
 void release_memory() {
@@ -531,6 +777,8 @@ void forget_recent() {
 
 void clear() {
     g_generation++;
+    g_warm.clear();
+    drop_chunks(nullptr);
     for (auto& kv : g_cache) {
         if (!kv.second.pinned) delete kv.second.img;
     }

@@ -9,6 +9,8 @@
 #include "rpg/data.h"
 #include "rpg/game.h"
 #include "rpg/scene.h"
+
+#include <algorithm>
 #include <ctime>
 
 int main(int argc, char** argv) {
@@ -21,8 +23,18 @@ int main(int argc, char** argv) {
         g2d::release_decoded_sources();
         g2d::release_font_atlases();
     });
-#ifdef PSP
+#if defined(PSP)
     images::set_budget(16u << 20);
+#elif defined(__vita__)
+    images::set_budget(96u << 20);
+#elif defined(__wii__)
+    images::set_budget(28u << 20);
+#elif defined(__PPU__) || defined(XENON)
+    images::set_budget(96u << 20);
+#elif defined(__PS2__)
+    images::set_budget(std::clamp<size_t>(plat::heap_limit() > (22u << 20) ? plat::heap_limit() - (22u << 20) : 0, 2u << 20, 8u << 20));
+#elif defined(__3DS__)
+    images::set_budget(plat::heap_limit() > (96u << 20) ? (32u << 20) : (16u << 20));
 #else
     images::set_budget(32u << 20);
 #endif

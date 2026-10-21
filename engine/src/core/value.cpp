@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "bytes.h"
 #include "fs.h"
 
 static const Value g_null;
@@ -105,7 +106,7 @@ bool Document::parse(size_t& pos, Value& out) {
             out.t = Value::Num;
             {
                 double* slot = (double*)arena(sizeof(double));
-                std::memcpy(slot, &(*src_)[pos], 8);
+                *slot = bytes::le_double(&(*src_)[pos]);
                 out.dp = slot;
             }
             pos += 8;
@@ -174,7 +175,7 @@ bool Document::load_memory(std::vector<uint8_t>&& data) {
     root_ = Value();
     if (data_.size() < 12 || std::memcmp(data_.data(), "VBIN", 4) != 0) return false;
     uint32_t table_len = 0;
-    std::memcpy(&table_len, &data_[8], 4);
+    table_len = bytes::le32(&data_[8]);
     size_t pos = 12;
     uint64_t count = 0;
     if (!read_varint(data_, pos, count)) return false;
@@ -207,7 +208,7 @@ bool Document::load_data(const std::string& rel) {
     uint8_t head[12];
     bool ok = fs::data_read(f, head, 12) == 12 && std::memcmp(head, "VBIN", 4) == 0;
     uint32_t table_len = 0;
-    if (ok) std::memcpy(&table_len, &head[8], 4);
+    if (ok) table_len = bytes::le32(&head[8]);
     if (ok) {
         data_.assign(head, head + 12);
         data_.resize(12 + (size_t)table_len);

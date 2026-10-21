@@ -23,7 +23,7 @@
 #define PHASES 3
 #define ATLAS_W 512
 
-static const double SCALE = TEX_SCALE;
+#define SCALE (g_target->tex_scale)
 static const double OUTLINE_LOGICAL = 4.0;
 static const int OUTLINE_ALPHA = 255;
 static const int EMBOLDEN = 1;

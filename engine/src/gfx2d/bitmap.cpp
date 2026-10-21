@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "../platform/gfx.h"
@@ -17,7 +18,8 @@ Canvas::Canvas(int w, int h) : lw(std::max(1, w)), lh(std::max(1, h)) {
     ph = std::max(1, (int)std::nearbyint(lh * S));
     stride = (pw + 15) & ~15;
     size_t bytes = (size_t)stride * ph * 4;
-    px = (uint32_t*)gfx::alloc(bytes);
+    px = profile::CANVAS_HEAP ? (uint32_t*)std::malloc(bytes) : nullptr;
+    if (!px) px = (uint32_t*)gfx::alloc(bytes);
     if (px) std::memset(px, 0, bytes);
     img.ow = lw;
     img.oh = lh;

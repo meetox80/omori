@@ -67,10 +67,10 @@ export class Theme {
     }
   }
 
-  wake(files) {
+  wake(files, key) {
     if (this.awake?.files === files) return Promise.resolve();
     const generation = ++this.generation;
-    return this.load(files)
+    return this.load(files, key)
       .then((awake) => {
         if (generation !== this.generation) {
           awake.release();
@@ -84,8 +84,8 @@ export class Theme {
       .catch((error) => console.warn("The page couldn't borrow the game's look:", error));
   }
 
-  async load(files) {
-    const assets = await openGameAssets(files);
+  async load(files, key) {
+    const assets = await openGameAssets(files, key);
     if (!assets) throw new Error("no readable System data");
     const entries = await Promise.all(Object.entries(SHEETS).map(async ([name, path]) => [name, await assets.image(path)]));
     const sheets = Object.fromEntries(entries);

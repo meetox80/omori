@@ -1,0 +1,9 @@
+float4 main(float2 vTexcoord : TEXCOORD0, uniform sampler2D uTexture, uniform sampler2D uLut, uniform float4 uChannel) : COLOR
+{
+    float i = dot(tex2D(uTexture, vTexcoord), uChannel);
+    float4 c = tex2D(uLut, float2(i * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
+#ifdef ALPHA_TEST
+    if (c.a < 0.5 / 255.0) discard;
+#endif
+    return c;
+}

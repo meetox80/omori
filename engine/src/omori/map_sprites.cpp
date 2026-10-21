@@ -467,8 +467,8 @@ double SpriteCharacter::pattern_width() {
     if (character_->has_custom_frame_w) return character_->custom_frame_w;
     double pw;
     if (tile_id_ > 0) pw = rpg::game_map().tile_width();
-    else if (is_big_character_) pw = (bitmap() ? bitmap()->width() : 0) / 3.0;
-    else pw = (bitmap() ? bitmap()->width() : 0) / 12.0;
+    else if (is_big_character_) pw = (bitmap_ ? bitmap_->width() : 0) / 3.0;
+    else pw = (bitmap_ ? bitmap_->width() : 0) / 12.0;
     if (character_->is_emf) return (pw * 3) / character_->emf.frame_num;
     return pw;
 }
@@ -476,8 +476,8 @@ double SpriteCharacter::pattern_width() {
 double SpriteCharacter::pattern_height() {
     if (character_->has_custom_frame_h) return character_->custom_frame_h;
     if (tile_id_ > 0) return rpg::game_map().tile_height();
-    if (is_big_character_) return (bitmap() ? bitmap()->height() : 0) / 4.0;
-    return (bitmap() ? bitmap()->height() : 0) / 8.0;
+    if (is_big_character_) return (bitmap_ ? bitmap_->height() : 0) / 4.0;
+    return (bitmap_ ? bitmap_->height() : 0) / 8.0;
 }
 
 void SpriteCharacter::update_half_body_sprites() {

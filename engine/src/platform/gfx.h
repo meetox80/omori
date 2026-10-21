@@ -2,18 +2,20 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "profile.h"
+
 namespace gfx {
 
-constexpr int SCREEN_W = 480;
-constexpr int SCREEN_H = 272;
+constexpr int SCREEN_W = profile::SCREEN_W;
+constexpr int SCREEN_H = profile::SCREEN_H;
 
 enum class Format : uint8_t { RGBA8888 = 0, RGBA4444 = 1, RGB565 = 2, RGBA5551 = 3, T8 = 4 };
 enum class Blend : uint8_t { Normal = 0, Add = 1, Multiply = 2, Screen = 3, Subtract = 4, Copy = 5, MulSrc = 6, MulAdd = 7, Max = 8, Min = 9, MulSub = 10 };
 enum class Surface : uint8_t { Screen = 0, Grab = 1, Half0 = 2, Half1 = 3, Half2 = 4, Wide = 5 };
 enum class Stencil : uint8_t { Off = 0, Write = 1, Test = 2 };
 
-constexpr int HALF_W = 240;
-constexpr int HALF_H = 138;
+constexpr int HALF_W = profile::HALF_W;
+constexpr int HALF_H = profile::HALF_H;
 
 struct Vertex {
     float u, v;
@@ -29,6 +31,42 @@ inline uint32_t rgba(int r, int g, int b, int a = 255) {
 
 inline uint32_t premul(int r, int g, int b, int a) {
     return rgba(r * a / 255, g * a / 255, b * a / 255, a);
+}
+
+inline size_t tiled_index(int x, int y, int tw, int th) {
+    int row = th - 1 - y;
+    int m = 0;
+    for (int i = 0; i < 3; i++) m |= ((x >> i) & 1) << (2 * i) | ((row >> i) & 1) << (2 * i + 1);
+    return ((size_t)(row >> 3) * (size_t)(tw >> 3) + (size_t)(x >> 3)) * 64 + (size_t)m;
+}
+
+inline uint32_t stored_texel(const uint8_t* raw, int x, int y, int stride, int rows) {
+    const uint8_t* p;
+    switch (profile::TEX_LAYOUT) {
+        case profile::TexLayout::PicaTiled:
+            p = raw + tiled_index(x, y, stride, rows) * 4;
+            return rgba(p[3], p[2], p[1], p[0]);
+        case profile::TexLayout::GxTiled: {
+            const uint8_t* tile = raw + ((size_t)(y >> 2) * (size_t)(stride >> 2) + (size_t)(x >> 2)) * 64;
+            size_t at = (size_t)((y & 3) * 4 + (x & 3)) * 2;
+            return rgba(tile[at + 1], tile[32 + at], tile[32 + at + 1], tile[at]);
+        }
+        case profile::TexLayout::Argb:
+            p = raw + ((size_t)y * stride + x) * 4;
+            return rgba(p[1], p[2], p[3], p[0]);
+        case profile::TexLayout::GsStraight: {
+            p = raw + ((size_t)y * stride + x) * 4;
+            int a = p[3] >= 128 ? 255 : (p[3] * 255 + 64) / 128;
+            return rgba(p[0] * a / 255, p[1] * a / 255, p[2] * a / 255, a);
+        }
+        case profile::TexLayout::PspSwizzle: {
+            size_t bw = (size_t)stride * 4, xb = (size_t)x * 4;
+            p = raw + ((size_t)(y / 8) * (bw / 16) + xb / 16) * 128 + (size_t)(y % 8) * 16 + xb % 16;
+            break;
+        }
+        default: p = raw + ((size_t)y * stride + x) * 4; break;
+    }
+    return rgba(p[0], p[1], p[2], p[3]);
 }
 
 void* alloc(size_t bytes);

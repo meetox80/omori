@@ -1,0 +1,15 @@
+void main(float2 aPosition : POSITION,
+          float2 aTexcoord : TEXCOORD0,
+          float4 aColor : COLOR0,
+          float4 aExtra : TEXCOORD1,
+          uniform float4 uTransform,
+          out float4 vPosition : POSITION,
+          out float2 vTexcoord : TEXCOORD0,
+          out float4 vColor : COLOR0,
+          out float4 vExtra : TEXCOORD1)
+{
+    vPosition = float4(aPosition * uTransform.xy + uTransform.zw, 0.0, 1.0);
+    vTexcoord = aTexcoord;
+    vColor = aColor;
+    vExtra = aExtra;
+}

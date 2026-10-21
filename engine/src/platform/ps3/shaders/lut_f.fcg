@@ -1,0 +1,5 @@
+float4 main(float2 vTexcoord : TEXCOORD0, float4 vExtra : TEXCOORD1, uniform sampler2D uTexture : TEXUNIT0, uniform sampler2D uLut : TEXUNIT1) : COLOR
+{
+    float i = dot(tex2D(uTexture, vTexcoord), vExtra);
+    return tex2D(uLut, float2(i * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
+}

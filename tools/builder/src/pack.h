@@ -40,6 +40,24 @@ typedef struct {
 int pbp_read(const uint8_t* data, size_t len, Pbp* out);
 int pbp_write_head(const Pbp* p, FILE* f);
 void pbp_free(Pbp* p);
+typedef struct {
+    const char* key;
+    int is_int;
+    uint32_t ival;
+    const char* sval;
+    uint32_t max;
+} SfoEntry;
+
 void sfo_build(const char* title, Buf* out);
+void sfo_write(const SfoEntry* entries, int count, Buf* out);
+
+typedef struct {
+    Buf head;
+    Buf body;
+} Exe3dsx;
+
+int x3dsx_read(const uint8_t* data, size_t len, Exe3dsx* out);
+int x3dsx_write(const Exe3dsx* x, const Buf* smdh, FILE* f, uint64_t* pack_at);
+void x3dsx_free(Exe3dsx* x);
 
 #endif

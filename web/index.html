@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OMORI for PSP</title>
-<meta name="description" content="Build a PSP version of OMORI from your own copy, right in your browser. An unofficial fan project: no OMORI files are hosted or shared here. OMORI is © OMOCAT, LLC.">
+<title>OMORI for consoles</title>
+<meta name="description" content="Build OMORI for the PSP, PS Vita, 3DS, Wii, PS3, PS2 or Xbox 360 from your own copy, right in your browser. An unofficial fan project: no OMORI files are hosted or shared here. OMORI is © OMOCAT, LLC.">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
@@ -23,9 +23,35 @@
       <button id="toggle-music" class="cursor-pointer px-2 py-1 aria-pressed:text-ink aria-pressed:underline aria-pressed:underline-offset-3 focus-visible:outline-2 focus-visible:outline-dashed" type="button" aria-pressed="false">music off</button>
     </div>
     <div id="hero-slot" class="empty:hidden"></div>
-    <h1 class="mb-3 text-[2rem]/tight font-bold tracking-tight max-sm:text-[1.6rem] awake:sr-only">OMORI for PSP</h1>
-    <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>EBOOT.PBP</code> you can play on a PSP or in PPSSPP. It all runs here in your browser, and your game files never leave your computer.</p>
-    <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a PSP-2000, PSP-3000, PSP Go or PSP Street (E1000) with custom firmware, or the PPSSPP emulator. The PSP-1000 doesn't have enough memory, sadly. The EBOOT is big, so keep about 2 GB free on the memory stick. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    <h1 class="mb-3 text-[2rem]/tight font-bold tracking-tight max-sm:text-[1.6rem] awake:sr-only"><span data-console="psp">OMORI for PSP</span><span data-console="vita" hidden>OMORI for PS Vita</span><span data-console="3ds" hidden>OMORI for 3DS</span><span data-console="wii" hidden>OMORI for Wii</span><span data-console="ps3" hidden>OMORI for PS3</span><span data-console="ps2" hidden>OMORI for PS2</span><span data-console="xbox360" hidden>OMORI for Xbox 360</span></h1>
+    <div data-console="psp">
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>EBOOT.PBP</code> you can play on a PSP or in PPSSPP. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a PSP-2000, PSP-3000, PSP Go or PSP Street (E1000) with custom firmware, or the PPSSPP emulator. The PSP-1000 doesn't have enough memory, sadly. The EBOOT is big, so keep about 2 GB free on the memory stick. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="vita" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into <code>OMORI.vpk</code> and a data folder you can play on a PS Vita, a PS TV or in Vita3K, with the game's full-size artwork filling the screen. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a PS Vita or PS TV running HENkaku or Ensō with VitaShell, or the Vita3K emulator. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="3ds" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>omori.3dsx</code> you can play on a Nintendo 3DS or in Azahar. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a 3DS, 2DS, New 3DS or New 2DS XL with custom firmware and the Homebrew Launcher, or the Azahar emulator. The game file is big, so keep about 2 GB free on the SD card. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="wii" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into an <code>apps/omori</code> folder for the Homebrew Channel, with the game's full-size artwork at the Wii's own 640x480. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and either a Wii or Wii U (in Wii mode) with the Homebrew Channel, or the Dolphin emulator. Keep about 2.5 GB free on a FAT32 SD card or USB drive. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="ps3" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>OMORI.pkg</code> you install from the PS3's XMB, with the game's full-size artwork scaled sharply up to your TV, up to 1080p. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and a PS3 running custom firmware or PS3HEN. The package is about 2.2 GB and installing it needs that much again on the PS3's hard drive. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="ps2" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into one <code>OMORI.iso</code> for Open PS2 Loader or PCSX2, drawn at 320x240 and shown line-doubled on your TV, so the art stays sharp. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and a PS2 that runs Open PS2 Loader (through FreeMcBoot, PS2BBL, a modchip or similar), or PCSX2. The disc image is about 2.8 GB. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
+    <div data-console="xbox360" hidden>
+      <p class="mb-2 text-[1.05rem]">Turn your copy of the game into a <code>xenon.elf</code> and an <code>omori</code> folder you start from a USB drive with XeLL, with the game's full-size artwork scaled sharply up to your TV. It all runs here in your browser, and your game files never leave your computer.</p>
+      <p class="text-[0.92rem] text-dim">You'll need the game itself, version 1.0.8 (it's on <a href="https://store.steampowered.com/app/1150690/OMORI/" target="_blank" rel="noopener">Steam</a>), and an Xbox 360 with the RGH or JTAG hack and XeLL. Keep about 2.2 GB free on a FAT32 USB drive. For building you need a recent Chrome, Edge, Firefox or Safari.</p>
+    </div>
   </header>
 
   <section id="step-game" class="sketch relative mt-6 p-5">
@@ -33,10 +59,25 @@
     <div id="game-empty">
       <div id="drop" class="sketch sketch-dashed sketch-clear relative px-4 py-7 text-center data-over:sketch-soft data-over:sketch-solid" tabindex="0">
         <p class="mb-1.5 text-lg">Drop your game folder or a .zip here</p>
-        <p class="mb-4 text-[0.9rem] text-dim">It's the folder with <code>OMORI.exe</code>, <code>Launch_OMORI.bat</code> and <code>www</code> in it. On Steam, right-click the game, go to Manage and pick Browse local files.</p>
+        <p class="mb-4 text-[0.9rem] text-dim">It's the folder with <code>OMORI.exe</code> and <code>www</code> in it. On Steam, right-click the game, go to Manage and pick Browse local files.</p>
         <div class="flex flex-wrap justify-center gap-3">
           <label class="btn btn-primary">Choose folder<input id="pick-folder" type="file" webkitdirectory directory multiple hidden></label>
           <label class="btn">Choose .zip<input id="pick-zip" type="file" accept=".zip,application/zip" hidden></label>
+        </div>
+      </div>
+    </div>
+    <div id="game-key" hidden>
+      <div id="key-drop" class="sketch sketch-dashed sketch-clear relative px-4 py-7 text-center data-over:sketch-soft data-over:sketch-solid" tabindex="0">
+        <p class="mb-1.5 text-lg">Now drop Steam's <code>appinfo.vdf</code> here</p>
+        <p class="mb-2 text-[0.9rem] text-dim">The game's files are encrypted, and Steam keeps the key in this file instead of the game folder. Only OMORI's key is read from it. It's in the <code>appcache</code> folder of wherever Steam is installed:</p>
+        <ul class="mx-auto mb-4 w-fit max-w-full space-y-1 text-left text-[0.9rem] wrap-anywhere text-dim">
+          <li>Windows: <code>C:\Program Files (x86)\Steam\appcache</code></li>
+          <li>Mac: <code>~/Library/Application Support/Steam/appcache</code> (press Cmd+Shift+G in the file picker to type it)</li>
+          <li>Linux: <code>~/.local/share/Steam/appcache</code>, or <code>~/.var/app/com.valvesoftware.Steam/.local/share/Steam/appcache</code> for the Flatpak (press Ctrl+L in the file picker to type it)</li>
+        </ul>
+        <div class="flex flex-wrap justify-center gap-3">
+          <label class="btn btn-primary">Choose appinfo.vdf<input id="pick-vdf" type="file" accept=".vdf" hidden></label>
+          <button id="cancel-key" class="btn btn-subtle" data-sound="sys_cancel">Use a different copy</button>
         </div>
       </div>
     </div>
@@ -57,7 +98,19 @@
 
   <section id="step-build" class="sketch relative mt-6 p-5 before:[animation-delay:-0.35s]">
     <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">2</span> Build</h2>
-    <button id="build" class="btn btn-primary w-full py-3 text-[1.05rem] awake:text-[1.3rem]" disabled>Build EBOOT.PBP</button>
+    <fieldset class="mb-4">
+      <legend class="mb-2 text-[0.92rem] text-dim">Build it for</legend>
+      <div class="flex flex-wrap gap-3">
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PSP<input class="sr-only" type="radio" name="console" value="psp" checked></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PS Vita<input class="sr-only" type="radio" name="console" value="vita"></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">3DS<input class="sr-only" type="radio" name="console" value="3ds"></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">Wii<input class="sr-only" type="radio" name="console" value="wii"></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PS3<input class="sr-only" type="radio" name="console" value="ps3"></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">PS2<input class="sr-only" type="radio" name="console" value="ps2"></label>
+        <label class="btn has-checked:sketch-ink has-checked:text-paper has-focus-visible:sketch-soft has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-dashed">Xbox 360<input class="sr-only" type="radio" name="console" value="xbox360"></label>
+      </div>
+    </fieldset>
+    <button id="build" class="btn btn-primary w-full py-3 text-[1.05rem] awake:text-[1.3rem]" disabled><span data-console="psp">Build EBOOT.PBP</span><span data-console="vita" hidden>Build for PS Vita</span><span data-console="3ds" hidden>Build omori.3dsx</span><span data-console="wii" hidden>Build for Wii</span><span data-console="ps3" hidden>Build OMORI.pkg</span><span data-console="ps2" hidden>Build OMORI.iso</span><span data-console="xbox360" hidden>Build for Xbox 360</span></button>
     <div id="build-status" class="relative mt-3.5 awake:pt-8" hidden>
       <div class="relative h-3 overflow-hidden rounded-xs border-3 border-ink"><div id="build-bar" class="h-full w-0 bg-ink transition-[width] duration-200"></div></div>
       <p id="build-text" class="mt-2 text-[0.92rem] text-dim"></p>
@@ -71,23 +124,94 @@
 
   <section id="step-done" class="sketch relative mt-6 p-5 before:[animation-delay:-0.7s]" hidden>
     <div id="party" class="-mt-1.5 mb-1.5 flex h-16 gap-0.5 overflow-hidden empty:hidden" aria-hidden="true"></div>
-    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">3</span> Put it on your PSP</h2>
-    <div class="flex flex-wrap gap-3">
-      <button id="download-zip" class="btn btn-primary">Download the PSP folder (.zip)</button>
-      <button id="download-eboot" class="btn">Just the EBOOT.PBP</button>
+    <h2 class="mb-3.5 flex items-center gap-2.5 text-lg font-bold awake:text-2xl awake:font-normal"><span class="inline-grid size-[30px] flex-none place-items-center rounded-full border-2 border-ink text-sm font-bold awake:text-base awake:font-normal">3</span> <span data-console="psp">Put it on your PSP</span><span data-console="vita" hidden>Put it on your Vita</span><span data-console="3ds" hidden>Put it on your 3DS</span><span data-console="wii" hidden>Put it on your Wii</span><span data-console="ps3" hidden>Put it on your PS3</span><span data-console="ps2" hidden>Put it on your PS2</span><span data-console="xbox360" hidden>Put it on your Xbox 360</span></h2>
+    <div data-console="psp">
+      <div class="flex flex-wrap gap-3">
+        <button id="download-zip" class="btn btn-primary">Download the PSP folder (.zip)</button>
+        <button id="download-eboot" class="btn">Just the EBOOT.PBP</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Unzip it into the root of your memory stick so you end up with <code>PSP/GAME/OMORI/EBOOT.PBP</code>.</li>
+        <li>On the PSP, go to Game, then Memory Stick. In PPSSPP, just open the EBOOT.</li>
+        <li>Saves go into <code>PSP/GAME/OMORI/saves</code> and stay there when you update.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: d-pad moves, cross confirms and talks to things, circle or start cancels and opens the menu, triangle tags (switches the party leader), hold square to run. L and R page through lists and do the map shortcuts (Q and W on PC), and select is the game's tab button. The analog stick isn't used.</p>
     </div>
-    <ol class="my-4 list-decimal space-y-1.5 pl-6">
-      <li>Unzip it into the root of your memory stick so you end up with <code>PSP/GAME/OMORI/EBOOT.PBP</code>.</li>
-      <li>On the PSP, go to Game, then Memory Stick. In PPSSPP, just open the EBOOT.</li>
-      <li>Saves go into <code>PSP/GAME/OMORI/saves</code> and stay there when you update.</li>
-    </ol>
-    <p class="text-[0.92rem] text-dim">Controls: d-pad moves, cross confirms and talks to things, circle or start cancels and opens the menu, triangle tags (switches the party leader), hold square to run. L and R page through lists and do the map shortcuts (Q and W on PC), and select is the game's tab button. The analog stick isn't used.</p>
+    <div data-console="vita" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-vita" class="btn btn-primary">Download for your Vita (.zip)</button>
+        <button id="download-vpk" class="btn">Just OMORI.vpk</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Unzip it onto <code>ux0:</code>, the root of your Vita's memory card (over USB or FTP from VitaShell), so you end up with <code>ux0:data/OMORI/omori.pak</code> and <code>ux0:OMORI.vpk</code>.</li>
+        <li>In VitaShell, open <code>ux0:</code>, press cross on <code>OMORI.vpk</code> and install it. OMORI then sits on your home screen. In Vita3K, install the vpk and unzip the rest into its <code>ux0</code> folder.</li>
+        <li>Saves go into <code>ux0:data/OMORI/saves</code> and stay there when you update.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: d-pad or left stick moves, cross confirms and talks to things, circle or start cancels and opens the menu, triangle tags (switches the party leader), hold square to run. L and R page through lists and do the map shortcuts (Q and W on PC), and select is the game's tab button.</p>
+    </div>
+    <div data-console="3ds" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-3ds" class="btn btn-primary">Download the 3ds folder (.zip)</button>
+        <button id="download-3dsx" class="btn">Just the omori.3dsx</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Unzip it into the root of your SD card so you end up with <code>3ds/omori/omori.3dsx</code>.</li>
+        <li>On the 3DS, open the Homebrew Launcher and pick OMORI. In Azahar, put it in the emulated SD card at the same place and open it from there.</li>
+        <li>Saves go into <code>3ds/omori/saves</code> and stay there when you update.</li>
+        <li>If there's no sound, run DSP1 once to dump the sound firmware.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: the d-pad or Circle Pad moves, A confirms and talks to things, B or START cancels and opens the menu, X tags (switches the party leader), hold Y to run. L and R page through lists and do the map shortcuts (Q and W on PC), and SELECT is the game's tab button. The game shows on the top screen.</p>
+    </div>
+    <div data-console="wii" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-wii" class="btn btn-primary">Download the apps folder (.zip)</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Unzip it into the root of your SD card or USB drive so you end up with <code>apps/omori/boot.dol</code> and <code>apps/omori/omori.pak</code>.</li>
+        <li>Start OMORI from the Homebrew Channel. In Dolphin, put the files on its virtual SD card and open <code>boot.dol</code>.</li>
+        <li>Saves go into <code>apps/omori/saves</code> and stay there when you update.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: hold the Wii Remote sideways; the d-pad moves, 2 confirms and talks to things, 1 cancels, A tags (switches the party leader), hold B to run, + opens the menu and − is the game's tab button. With a Classic Controller or GameCube controller: A confirms, B cancels, X tags, hold Y to run, L and R page through lists, + or START opens the menu, − or Z is tab. HOME goes back to the Homebrew Channel.</p>
+    </div>
+    <div data-console="ps3" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-ps3" class="btn btn-primary">Download OMORI.pkg</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Copy <code>OMORI.pkg</code> to the root of a USB drive formatted as FAT32.</li>
+        <li>Plug the drive into the PS3, open Package Manager, then Install Package Files, and install OMORI. It then shows up under Game, and you can delete the pkg from the drive.</li>
+        <li>Saves go into <code>/dev_hdd0/game/OMRI00001/USRDIR/saves</code> and stay there when you install a newer build over it.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: d-pad or left stick moves, cross confirms and talks to things, circle or start cancels and opens the menu, triangle tags (switches the party leader), hold square to run. L1 and R1 (or L2 and R2) page through lists and do the map shortcuts (Q and W on PC), and select is the game's tab button. The PS button goes back to the XMB.</p>
+    </div>
+    <div data-console="ps2" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-ps2" class="btn btn-primary">Download OMORI.iso</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Put <code>OMORI.iso</code> in the <code>DVD</code> folder of the USB drive, internal hard drive or network share you use with Open PS2 Loader.</li>
+        <li>Start OMORI from Open PS2 Loader's game list. In PCSX2, open the iso with File, then Start File.</li>
+        <li>Saves go to the memory card in slot 1, in a folder called <code>OMORI</code>, or slot 2 if slot 1 is empty. They stay there when you update.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: d-pad or left stick moves, cross confirms and talks to things, circle or start cancels and opens the menu, triangle tags (switches the party leader), hold square to run. L1 and R1 (or L2 and R2) page through lists and do the map shortcuts (Q and W on PC), and select is the game's tab button.</p>
+    </div>
+    <div data-console="xbox360" hidden>
+      <div class="flex flex-wrap gap-3">
+        <button id="download-xbox360" class="btn btn-primary">Download for your Xbox 360 (.zip)</button>
+      </div>
+      <ol class="my-4 list-decimal space-y-1.5 pl-6">
+        <li>Unzip it into the root of a USB drive formatted as FAT32 so you end up with <code>xenon.elf</code> and the <code>omori</code> folder next to it.</li>
+        <li>Plug the drive in and boot XeLL. It finds <code>xenon.elf</code> on the drive and starts OMORI.</li>
+        <li>Saves go into <code>omori/saves</code> on the drive and stay there when you update.</li>
+      </ol>
+      <p class="text-[0.92rem] text-dim">Controls: d-pad or left stick moves, A confirms and talks to things, B or START cancels and opens the menu, Y tags (switches the party leader), hold X to run. LB and RB (or LT and RT) page through lists and do the map shortcuts (Q and W on PC), and BACK is the game's tab button. The Guide button quits.</p>
+    </div>
   </section>
 
   <div id="whitespace" class="mt-9 flex justify-center overflow-hidden" hidden></div>
 
   <footer class="mt-7 space-y-3 text-sm text-dim awake:text-[0.8rem]">
-    <p class="text-ink">Made by kotwicha. The code is on <a href="https://github.com/meetox80/psp-omori" target="_blank" rel="noopener">GitHub</a>.</p>
+    <p class="text-ink">Made by kotwicha. The code is on <a href="https://github.com/meetox80/omori" target="_blank" rel="noopener">GitHub</a>.</p>
     <p>This is an unofficial, non-commercial fan port with its own engine written from scratch. OMORI and everything in it, including its characters, artwork, music, sounds, fonts and writing, is &copy; OMOCAT, LLC. All rights reserved. This project is not affiliated with or endorsed by OMOCAT.</p>
     <p>This page doesn't host, include or share any of OMORI's files. Once you give it your copy of the game, it borrows a few sprites, sounds, the game's font and some lines of dialogue from that copy to dress itself up. That all happens inside your browser and nothing gets uploaded anywhere.</p>
   </footer>

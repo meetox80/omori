@@ -1,6 +1,19 @@
 import { MemoryDirectory, SyncAccessFile, WasiProcess } from "./wasi.js";
 
-const OUTPUT_NAME = "EBOOT.PBP";
+const OUTPUTS = {
+  psp: { name: "EBOOT.PBP", path: "EBOOT.PBP", args: ["-o", "/out/EBOOT.PBP"], extras: [] },
+  vita: { name: "omori.pak", path: "data/OMORI/omori.pak", args: ["--target", "vita", "-o", "/out"], extras: ["OMORI.vpk"] },
+  "3ds": { name: "omori.3dsx", path: "omori.3dsx", args: ["--target", "3ds", "-o", "/out/omori.3dsx"], extras: [] },
+  wii: {
+    name: "omori.pak",
+    path: "apps/omori/omori.pak",
+    args: ["--target", "wii", "-o", "/out"],
+    extras: ["apps/omori/boot.dol", "apps/omori/meta.xml", "apps/omori/icon.png"],
+  },
+  ps3: { name: "OMORI.pkg", path: "OMORI.pkg", args: ["--target", "ps3", "-o", "/out/OMORI.pkg"], extras: [], zipped: false },
+  ps2: { name: "OMORI.iso", path: "OMORI.iso", args: ["--target", "ps2", "-o", "/out/OMORI.iso"], extras: [], zipped: false },
+  xbox360: { name: "omori.pak", path: "omori/omori.pak", args: ["--target", "xbox360", "-o", "/out"], extras: ["xenon.elf"], split: true },
+};
 const MOVIES_DIR = "movies-done";
 
 const CRC_TABLE = (() => {
@@ -25,9 +38,9 @@ function crc32(handle, size) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-async function openOutput() {
+async function openOutput(name) {
   const root = await navigator.storage.getDirectory();
-  const file = await root.getFileHandle(OUTPUT_NAME, { create: true });
+  const file = await root.getFileHandle(name, { create: true });
   const handle = await file.createSyncAccessHandle();
   handle.truncate(0);
   return handle;
@@ -54,19 +67,20 @@ function wasiProcess(args, env, root) {
   return new WasiProcess({ args, env, root, onLine: (line) => self.postMessage({ type: "line", line }) });
 }
 
-function convertMovie({ module, gameFiles, env, movie }) {
+function convertMovie({ module, gameFiles, env, movie, target }) {
   const root = gameDirectory(gameFiles);
-  const code = wasiProcess(["omori-builder", "/game", "--movie", movie, "-o", "/out"], env, root).run(module);
+  const code = wasiProcess(["omori-builder", "/game", "--target", target, "--movie", movie, "-o", "/out"], env, root).run(module);
   const files = code === 0 ? collectFiles(root.find(["out"]), "", []) : [];
   self.postMessage({ type: "done", code, files });
 }
 
-async function build({ module, gameFiles, env, movies }) {
-  const output = await openOutput();
+async function build({ module, gameFiles, env, movies, target }) {
+  const spec = OUTPUTS[target];
+  const output = await openOutput(spec.name);
   try {
     const root = gameDirectory(gameFiles);
-    root.addNode(`out/${OUTPUT_NAME}`, new SyncAccessFile(output));
-    const args = ["omori-builder", "/game", "-o", `/out/${OUTPUT_NAME}`];
+    root.addNode(`out/${spec.path}`, new SyncAccessFile(output));
+    const args = ["omori-builder", "/game", ...spec.args];
     if (movies?.length) {
       for (const file of movies) root.addFile(`${MOVIES_DIR}/${file.path}`, file.blob);
       args.push("--movies-from", `/${MOVIES_DIR}`);
@@ -81,9 +95,27 @@ async function build({ module, gameFiles, env, movies }) {
       self.postMessage({ type: "done", code, seconds });
       return;
     }
-    self.postMessage({ type: "line", line: "checking the output" });
-    const crc = crc32(output, size);
-    self.postMessage({ type: "done", code, seconds, output: OUTPUT_NAME, size, crc });
+    const extras = [];
+    for (const name of spec.extras) {
+      const node = root.find(["out", ...name.split("/")]);
+      if (!node) {
+        self.postMessage({ type: "done", code: 2, seconds });
+        return;
+      }
+      extras.push({ path: name, blob: new Blob([node.contents()]) });
+    }
+    for (let part = 1; spec.split; part++) {
+      const name = `${spec.path}.${part}`;
+      const node = root.find(["out", ...name.split("/")]);
+      if (!node) break;
+      extras.push({ path: name, blob: new Blob([node.contents()]) });
+    }
+    let crc = 0;
+    if (spec.zipped !== false) {
+      self.postMessage({ type: "line", line: "checking the output" });
+      crc = crc32(output, size);
+    }
+    self.postMessage({ type: "done", code, seconds, output: spec.name, path: spec.path, size, crc, extras });
   } finally {
     output.close();
   }

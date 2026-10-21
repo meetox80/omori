@@ -3,14 +3,19 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 sdk="${WASI_SDK:-$root/_deps/wasi-sdk}"
 tailwind="${TAILWIND:-$root/_deps/tailwindcss}"
-engine="${ENGINE_PBP:-$root/build/psp/EBOOT.PBP}"
+engines_dir="${ENGINES_DIR:-$root/build}"
+engines=("psp/EBOOT.PBP:embedded_psp_eboot" "vita/eboot.bin:embedded_vita_eboot" "vita/param.sfo:embedded_vita_sfo"
+  "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "ps3/EBOOT.BIN:embedded_ps3_eboot" "ps2/OMORI.ELF:embedded_ps2_elf"
+  "xenon/xenon.elf:embedded_xenon_elf")
 src="$root/tools/builder"
 shared="$root/shared"
 engine_src="$root/engine/src"
 out="$root/build/web"
 gen="$root/build/web-gen"
 jobs="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
-[ -f "$engine" ] || { echo "engine not found: $engine (run make engine first)"; exit 1; }
+for pair in "${engines[@]}"; do
+  [ -f "$engines_dir/${pair%%:*}" ] || { echo "engine not found: $engines_dir/${pair%%:*} (run make engines first)"; exit 1; }
+done
 [ -x "$sdk/bin/clang" ] || { echo "wasi-sdk not found: $sdk (run scripts/setup-wasi-sdk.sh first)"; exit 1; }
 [ -x "$tailwind" ] || { echo "tailwindcss not found: $tailwind (run scripts/setup-tailwind.sh first)"; exit 1; }
 mkdir -p "$out" "$gen"
@@ -18,7 +23,9 @@ find "$out" -mindepth 1 -delete
 rm -rf "$gen/obj"
 mkdir -p "$gen/obj"
 cc -O2 -o "$gen/embed" "$src/tools/embed.c"
-"$gen/embed" "$engine" "$gen/engine_blob.c" embedded_engine
+for pair in "${engines[@]}"; do
+  "$gen/embed" "$engines_dir/${pair%%:*}" "$gen/${pair##*:}.c" "${pair##*:}"
+done
 fonts=("NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallback.ttf:fallback_noto_symbols2" "NotoSansMath-Fallback.ttf:fallback_noto_math"
   "NotoSansArabic-Fallback.ttf:fallback_noto_arabic" "NotoSansSC-Fallback.otf:fallback_noto_sc")
 for pair in "${fonts[@]}"; do
@@ -52,8 +59,10 @@ compile() {
 while IFS= read -r f; do compile "$f" "$sdk/bin/clang" "${vpx_flags[@]}"; done < <(find "$src/third_party/libvpx" -name '*.c' | sort)
 while IFS= read -r f; do compile "$f" "$sdk/bin/clang" "${opus_flags[@]}"; done < <(find "$src/third_party/opus" -name '*.c' | sort)
 for f in "$src"/src/*.c "$src/third_party/miniz.c" "$shared"/rx.c "$shared"/js.c "$shared"/node.c "$shared"/buf.c "$shared"/script.c \
-  "$gen/engine_blob.c" "$gen"/fallback_noto_*.c; do
-  compile "$f" "$sdk/bin/clang" -std=c99 "${sjlj[@]}" "${builder_flags[@]}"
+  "$gen"/embedded_*.c "$gen"/fallback_noto_*.c; do
+  quiet=()
+  [ "${f##*/}" = stb_vorbis_impl.c ] && quiet=(-w)
+  compile "$f" "$sdk/bin/clang" -std=c99 "${sjlj[@]}" "${builder_flags[@]}" "${quiet[@]}"
 done
 for f in "$src"/src/*.cpp "$engine_src"/js/value.cpp "$engine_src"/js/vm.cpp "$engine_src"/js/builtins.cpp "$engine_src"/js/random.cpp \
   "$engine_src"/js/regexp.cpp "$engine_src"/js/compile.cpp "$engine_src"/js/dataview.cpp "$engine_src"/core/value.cpp; do

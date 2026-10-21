@@ -2,7 +2,10 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 zig="${ZIG:-$root/_deps/zig/zig}"
-engine="${ENGINE_PBP:-$root/build/psp/EBOOT.PBP}"
+engines_dir="${ENGINES_DIR:-$root/build}"
+engines=("psp/EBOOT.PBP:embedded_psp_eboot" "vita/eboot.bin:embedded_vita_eboot" "vita/param.sfo:embedded_vita_sfo"
+  "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "ps3/EBOOT.BIN:embedded_ps3_eboot" "ps2/OMORI.ELF:embedded_ps2_elf"
+  "xenon/xenon.elf:embedded_xenon_elf")
 src="$root/tools/builder"
 shared="$root/shared"
 engine_src="$root/engine/src"
@@ -10,9 +13,13 @@ out="$root/build/builder"
 gen="$out/gen"
 jobs="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 mkdir -p "$gen"
-[ -f "$engine" ] || { echo "engine not found: $engine (run make engine first)"; exit 1; }
+for pair in "${engines[@]}"; do
+  [ -f "$engines_dir/${pair%%:*}" ] || { echo "engine not found: $engines_dir/${pair%%:*} (run make engines first)"; exit 1; }
+done
 cc -O2 -o "$gen/embed" "$src/tools/embed.c"
-"$gen/embed" "$engine" "$gen/engine_blob.c" embedded_engine
+for pair in "${engines[@]}"; do
+  "$gen/embed" "$engines_dir/${pair%%:*}" "$gen/${pair##*:}.c" "${pair##*:}"
+done
 fonts=("NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallback.ttf:fallback_noto_symbols2" "NotoSansMath-Fallback.ttf:fallback_noto_math"
   "NotoSansArabic-Fallback.ttf:fallback_noto_arabic" "NotoSansSC-Fallback.otf:fallback_noto_sc")
 for pair in "${fonts[@]}"; do
@@ -27,7 +34,7 @@ opus_flags=(-std=c99 -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF -I"$src/third_party
 mapfile -t vpx_src < <(find "$src/third_party/libvpx" -name '*.c' | sort)
 mapfile -t opus_src < <(find "$src/third_party/opus" -name '*.c' | sort)
 c_src=("$src"/src/*.c "$src/third_party/miniz.c" "$shared"/rx.c "$shared"/js.c "$shared"/node.c "$shared"/buf.c "$shared"/script.c
-  "$gen/engine_blob.c" "$gen"/fallback_noto_*.c)
+  "$gen"/embedded_*.c "$gen"/fallback_noto_*.c)
 cpp_src=("$src"/src/*.cpp "$engine_src"/js/value.cpp "$engine_src"/js/vm.cpp "$engine_src"/js/builtins.cpp "$engine_src"/js/random.cpp
   "$engine_src"/js/regexp.cpp "$engine_src"/js/compile.cpp "$engine_src"/js/dataview.cpp "$engine_src"/core/value.cpp)
 
@@ -36,7 +43,7 @@ for t in ${targets[@]}; do
   name="omori-builder-$t"
   libs="-lm"
   case "$t" in
-    *windows*) name="$name.exe"; libs="-lole32 -lshell32 -luser32 -lgdi32 -ladvapi32 -luuid" ;;
+    *windows*) name="$name.exe"; libs="-lole32 -lshell32 -luser32 -lgdi32 -ladvapi32 -luuid -lcomctl32" ;;
     *linux*) libs="-lm -lpthread -static" ;;
   esac
   obj="$gen/obj-$t"

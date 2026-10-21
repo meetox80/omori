@@ -1,0 +1,8 @@
+float4 main(float2 vTexcoord : TEXCOORD0, float4 vColor : COLOR0, uniform sampler2D uTexture) : COLOR
+{
+    float4 c = float4(vColor.rgb, vColor.a * tex2D(uTexture, vTexcoord).a);
+#ifdef ALPHA_TEST
+    if (c.a < 0.5 / 255.0) discard;
+#endif
+    return c;
+}

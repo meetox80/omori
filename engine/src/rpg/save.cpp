@@ -11,6 +11,7 @@
 #include <ctime>
 #include <unordered_map>
 
+#include "../core/bytes.h"
 #include "../core/fs.h"
 #include "../js/bind.h"
 #include "../js/compile.h"
@@ -2108,8 +2109,8 @@ std::vector<uint8_t> pack(const std::vector<uint8_t>& raw) {
     std::memcpy(out.data(), "OMSV", 4);
     uint32_t version = 1;
     uint32_t size = (uint32_t)raw.size();
-    std::memcpy(out.data() + 4, &version, 4);
-    std::memcpy(out.data() + 8, &size, 4);
+    bytes::put_le32(out.data() + 4, version);
+    bytes::put_le32(out.data() + 8, size);
     if (compress2(out.data() + 12, &cap, raw.data(), (uLong)raw.size(), 6) != Z_OK) return {};
     out.resize(12 + cap);
     return out;
@@ -2117,8 +2118,7 @@ std::vector<uint8_t> pack(const std::vector<uint8_t>& raw) {
 
 bool unpack(const std::vector<uint8_t>& in, std::vector<uint8_t>& out) {
     if (in.size() < 12 || std::memcmp(in.data(), "OMSV", 4) != 0) return false;
-    uint32_t size = 0;
-    std::memcpy(&size, in.data() + 8, 4);
+    uint32_t size = bytes::le32(in.data() + 8);
     out.resize(size);
     uLongf dst = size;
     if (uncompress(out.data(), &dst, in.data() + 12, (uLong)(in.size() - 12)) != Z_OK || dst != size) return false;

@@ -1,5 +1,5 @@
-const SOUND_PREF = "omori-psp-sound";
-const MUSIC_PREF = "omori-psp-music";
+const SOUND_PREF = "omori-sound";
+const MUSIC_PREF = "omori-music";
 
 function readPref(name, fallback) {
   try {

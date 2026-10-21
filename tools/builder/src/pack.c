@@ -164,20 +164,16 @@ void pbp_free(Pbp* p) {
     for (int i = 0; i < 8; i++) buf_free(&p->part[i]);
 }
 
-typedef struct {
-    const char* key;
-    int is_int;
-    uint32_t ival;
-    const char* sval;
-} SfoEntry;
-
 void sfo_build(const char* title, Buf* out) {
     SfoEntry e[] = {
-        {"BOOTABLE", 1, 1, NULL},      {"CATEGORY", 0, 0, "MG"},          {"DISC_ID", 0, 0, "OMORI0001"},
-        {"DISC_VERSION", 0, 0, "1.00"}, {"MEMSIZE", 1, 1, NULL},           {"PARENTAL_LEVEL", 1, 1, NULL},
-        {"PSP_SYSTEM_VER", 0, 0, "1.00"}, {"REGION", 1, 32768, NULL},       {"TITLE", 0, 0, title},
+        {"BOOTABLE", 1, 1, NULL, 0},      {"CATEGORY", 0, 0, "MG", 4},          {"DISC_ID", 0, 0, "OMORI0001", 16},
+        {"DISC_VERSION", 0, 0, "1.00", 8}, {"MEMSIZE", 1, 1, NULL, 0},           {"PARENTAL_LEVEL", 1, 1, NULL, 0},
+        {"PSP_SYSTEM_VER", 0, 0, "1.00", 8}, {"REGION", 1, 32768, NULL, 0},       {"TITLE", 0, 0, title, 128},
     };
-    int n = (int)(sizeof(e) / sizeof(e[0]));
+    sfo_write(e, (int)(sizeof(e) / sizeof(e[0])), out);
+}
+
+void sfo_write(const SfoEntry* e, int n, Buf* out) {
     Buf keys = {0}, vals = {0}, index = {0};
     for (int i = 0; i < n; i++) {
         uint32_t key_off = (uint32_t)keys.len;
@@ -191,11 +187,7 @@ void sfo_build(const char* title, Buf* out) {
             length = maxlen = 4;
         } else {
             length = (uint32_t)strlen(e[i].sval) + 1;
-            maxlen = (length + 3) / 4 * 4;
-            if (!strcmp(e[i].key, "TITLE")) maxlen = 128;
-            if (!strcmp(e[i].key, "DISC_ID")) maxlen = 16;
-            if (!strcmp(e[i].key, "CATEGORY")) maxlen = 4;
-            if (!strcmp(e[i].key, "DISC_VERSION") || !strcmp(e[i].key, "PSP_SYSTEM_VER")) maxlen = 8;
+            maxlen = e[i].max ? e[i].max : (length + 3) / 4 * 4;
             buf_put(&vals, e[i].sval, length);
             buf_zero(&vals, maxlen - length);
             fmt = 0x0204;
@@ -220,4 +212,49 @@ void sfo_build(const char* title, Buf* out) {
     buf_free(&keys);
     buf_free(&vals);
     buf_free(&index);
+}
+
+int x3dsx_read(const uint8_t* data, size_t len, Exe3dsx* out) {
+    memset(out, 0, sizeof(*out));
+    if (len < 0x20 || memcmp(data, "3DSX", 4) != 0) return 0;
+    uint32_t header = (uint32_t)(data[4] | data[5] << 8);
+    uint32_t reloc_hdr = (uint32_t)(data[6] | data[7] << 8);
+    if (header < 0x20 || reloc_hdr < 8 || header + 3 * reloc_hdr > len) return 0;
+    uint64_t code = get32(data + 0x10), rodata = get32(data + 0x14), dat = get32(data + 0x18), bss = get32(data + 0x1C);
+    if (bss > dat) return 0;
+    uint64_t end = header + 3 * (uint64_t)reloc_hdr + code + rodata + (dat - bss);
+    for (int i = 0; i < 3; i++) {
+        const uint8_t* r = data + header + (size_t)i * reloc_hdr;
+        end += ((uint64_t)get32(r) + get32(r + 4)) * 4;
+    }
+    if (end > len) return 0;
+    buf_put(&out->head, data, 0x20);
+    buf_put(&out->body, data + header, (size_t)(end - header));
+    return 1;
+}
+
+int x3dsx_write(const Exe3dsx* x, const Buf* smdh, FILE* f, uint64_t* pack_at) {
+    uint32_t smdh_at = 0x2C + (uint32_t)x->body.len;
+    uint32_t fs_at = (smdh_at + (uint32_t)smdh->len + 15) & ~15u;
+    Buf head = {0};
+    buf_put(&head, x->head.data, 0x20);
+    head.data[4] = 0x2C;
+    head.data[5] = 0;
+    buf_u32(&head, smdh_at);
+    buf_u32(&head, (uint32_t)smdh->len);
+    buf_u32(&head, fs_at);
+    int ok = fwrite(head.data, 1, head.len, f) == head.len;
+    buf_free(&head);
+    ok = ok && fwrite(x->body.data, 1, x->body.len, f) == x->body.len;
+    ok = ok && (!smdh->len || fwrite(smdh->data, 1, smdh->len, f) == smdh->len);
+    static const uint8_t zero[16] = {0};
+    size_t pad = fs_at - (smdh_at + smdh->len);
+    ok = ok && (!pad || fwrite(zero, 1, pad, f) == pad);
+    if (pack_at) *pack_at = fs_at;
+    return ok;
+}
+
+void x3dsx_free(Exe3dsx* x) {
+    buf_free(&x->head);
+    buf_free(&x->body);
 }

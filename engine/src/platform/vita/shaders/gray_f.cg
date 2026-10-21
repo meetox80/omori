@@ -1,0 +1,6 @@
+float4 main(float2 vTexcoord : TEXCOORD0, uniform sampler2D uTexture, uniform float uLevel) : COLOR
+{
+    float3 c = tex2D(uTexture, vTexcoord).rgb;
+    float g = (c.r + c.g + c.b) / 3.0;
+    return float4(lerp(c, float3(g, g, g), uLevel), 1.0);
+}

@@ -1,0 +1,5 @@
+exec
+tfetch r3, r0.xy, tf0
+alloc colors
+exec
+mul o0, r3, r1

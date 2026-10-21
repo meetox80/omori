@@ -4,10 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "target.h"
 #include "util.h"
 
-#define TEX_SCALE 0.5625
-#define MAX_TEX 512
+#define ATLAS_PAGE 512
 
 typedef struct {
     int w;
@@ -34,5 +34,6 @@ int tex_encode(const Image* premul, int orig_w, int orig_h, Buf* out);
 int tex_from_png(const uint8_t* png, size_t len, int cells_x, int cells_y, Buf* out);
 int tex_from_image(const Image* straight, int cells_x, int cells_y, Buf* out);
 int png_encode(const Image* img, int with_alpha, Buf* out);
+int png_encode_indexed(const Image* img, Buf* out);
 
 #endif

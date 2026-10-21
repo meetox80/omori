@@ -1,0 +1,13 @@
+exec
+vfetch r1.xy01, r0.x, position0
+vfetch r2.xy01, r0.x, texcoord0
+vfetch r3.xyzw, r0.x, color0
+vfetch r4.xyzw, r0.x, texcoord1
+alloc position
+exec
+mad o62, r1, c0, c1
+alloc interpolators
+exec
+max o0, r2, r2
+max o1, r3, r3
+max o2, r4, r4

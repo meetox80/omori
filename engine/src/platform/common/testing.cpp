@@ -66,6 +66,7 @@ void parse_args(plat::Options& opt, const std::vector<std::string>& args) {
         else if (a == "--dump-audio") opt.dump_audio = std::atoi(next().c_str());
         else if (a == "--tint") opt.debug_tint = next();
         else if (a == "--start") opt.debug_start = next();
+        else if (a == "--ballast") opt.ballast_mb = std::atoi(next().c_str());
     }
 }
 

@@ -6,8 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "adpcm.h"
 #include "font.h"
 #include "image.h"
+#include "ps2disc.h"
 
 static char* lower_dup(const char* s) {
     char* r = xstrdup(s);
@@ -317,25 +319,59 @@ static int audio_known(const uint8_t* d, size_t n) {
     return 0;
 }
 
-int assets_build_audio(Game* g, Pack* pack) {
+typedef struct {
+    Game* game;
+    char* stored;
+    int index;
+    PackEntry* entry;
+    Pack* pack;
+} AudioJob;
+
+static void audio_job(void* ctx, int index) {
+    AudioJob* job = &((AudioJob*)ctx)[index];
+    PackEntry* e = job->entry;
+    if (!game_read_stored(job->game, job->stored, &e->data)) {
+        e->error = str_fmt("%s: unreadable", job->stored);
+    } else if (!audio_known(e->data.data, e->data.len)) {
+        e->error = str_fmt("%s: unknown audio format", job->stored);
+    } else if (g_target->id == TARGET_PS2 && e->data.len >= 4 && !memcmp(e->data.data, "OggS", 4)) {
+        Buf out = {0};
+        char err[128];
+        if (adpcm_from_ogg(e->data.data, e->data.len, &out, err, sizeof(err))) {
+            buf_free(&e->data);
+            e->data = out;
+        } else {
+            buf_free(&out);
+            e->error = str_fmt("%s: %s", job->stored, err);
+        }
+    }
+    pack_ready(job->pack, e);
+}
+
+int assets_build_audio(Game* g, Pack* pack, int jobs) {
     int nfiles;
     char** files = game_stored_files(g, "audio", &nfiles);
-    int total = 0;
+    AudioJob* list = xcalloc((size_t)(nfiles ? nfiles : 1), sizeof(AudioJob));
+    int n = 0;
     for (int i = 0; i < nfiles; i++) {
         char* logical = game_logical(files[i]);
         if (ends_with_ci(logical, ".ogg")) {
             char* key = asset_key(logical, "ogg");
-            PackEntry* e = pack_add(pack, key);
-            if (!game_read_stored(g, files[i], &e->data)) e->error = str_fmt("%s: unreadable", files[i]);
-            else if (!audio_known(e->data.data, e->data.len)) e->error = str_fmt("%s: unknown audio format", files[i]);
-            pack_ready(pack, e);
+            list[n].game = g;
+            list[n].stored = files[i];
+            list[n].index = pack->count;
+            list[n].pack = pack;
+            pack_add(pack, key);
+            n++;
             free(key);
-            total++;
         }
         free(logical);
     }
+    for (int i = 0; i < n; i++) list[i].entry = &pack->items[list[i].index];
+    run_jobs(audio_job, list, n, jobs);
+    free(list);
     str_list_free(files, nfiles);
-    return total;
+    return n;
 }
 
 typedef struct {
@@ -525,23 +561,206 @@ static Image* atlas_virtual(Game* g, Node* atlas, const char* key) {
     return out;
 }
 
-void assets_build_icons(Game* g, Node* atlas, Buf* icon0, Buf* pic1) {
-    Image* logo = atlas_virtual(g, atlas, "img/pictures/OMO_TITLE_WS.png");
-    Image* scene = atlas_virtual(g, atlas, "img/pictures/OMO_WS.png");
-    if (logo) {
-        Image* icon = fit_rgb(logo, 144, 80, 0xFFFFFF);
-        png_encode(icon, 0, icon0);
-        img_free(icon);
-    } else {
-        log_msg("  warning: title logo missing, no ICON0");
+static Image* atlas_placed(Game* g, Node* atlas, const char* key, int* ox, int* oy) {
+    Node* e = atlas ? node_get(node_get(atlas, "source"), key) : NULL;
+    Node* r = e ? node_get(e, "rect") : NULL;
+    *ox = (int)node_numv(node_get(r, "x"), 0);
+    *oy = (int)node_numv(node_get(r, "y"), 0);
+    return atlas_virtual(g, atlas, key);
+}
+
+static int place(Image* canvas, Game* g, Node* atlas, const char* key, int x, int y, int crop_w, int stretch_h) {
+    int ox, oy;
+    Image* pic = atlas_placed(g, atlas, key, &ox, &oy);
+    if (!pic) return 0;
+    if (crop_w > 0 && crop_w < pic->w) {
+        Image* c = img_crop(pic, 0, 0, crop_w, pic->h);
+        img_free(pic);
+        pic = c;
     }
-    if (scene) {
-        Image* bg = fit_rgb(scene, 480, 272, 0xFFFFFF);
-        png_encode(bg, 0, pic1);
-        img_free(bg);
-    } else {
-        log_msg("  warning: title scene missing, no PIC1");
+    if (stretch_h > 0) {
+        Image* rs = img_resize(pic, pic->w, stretch_h, FILTER_LANCZOS);
+        img_free(pic);
+        pic = rs;
+    }
+    img_alpha_composite(canvas, pic, x + ox, y + oy);
+    img_free(pic);
+    return 1;
+}
+
+static Image* white_canvas(int w, int h) {
+    Image* c = img_new(w, h);
+    memset(c->px, 255, (size_t)w * h * 4);
+    return c;
+}
+
+typedef struct {
+    Image* scene;
+    Image* mark;
+    Image* bust;
+} TitleArt;
+
+static void title_art_free(TitleArt* t) {
+    img_free(t->scene);
+    img_free(t->mark);
+    img_free(t->bust);
+    memset(t, 0, sizeof(*t));
+}
+
+static int title_art(Game* g, Node* atlas, TitleArt* t) {
+    const int tx = 167, ty = -30;
+    memset(t, 0, sizeof(*t));
+    Image* logo = white_canvas(640, 480);
+    t->scene = white_canvas(640, 480);
+    int ok = 1;
+    for (int pass = 0; pass < 2 && ok; pass++) {
+        Image* c = pass ? logo : t->scene;
+        if (!pass) ok = place(c, g, atlas, "img/pictures/OMO_WS.png", 167, 129, 306, 0);
+        ok = ok && place(c, g, atlas, "img/pictures/OMO_STRING_WS.png", tx + 120, ty - 282, 0, 300);
+        ok = ok && place(c, g, atlas, "img/pictures/OMO_BULB_WS.png", tx + 120, ty - 2, 0, 0);
+        ok = ok && place(c, g, atlas, "img/pictures/OMO_BULB_WS_LINES.png", tx + 120, ty, 68, 0);
+        ok = ok && place(c, g, atlas, "img/pictures/OMO_TITLE_WS.png", tx, ty, 0, 0);
+    }
+    if (ok) {
+        int fox, foy;
+        Image* face = atlas_placed(g, atlas, "img/pictures/OMO_WS.png", &fox, &foy);
+        Image* frame = face ? img_crop(face, 0, 0, 306, face->h) : NULL;
+        t->mark = img_crop(logo, tx - 10, 0, tx + 287, 128);
+        t->bust = white_canvas(340, 340);
+        if (frame) img_alpha_composite(t->bust, frame, (340 - frame->w) / 2, 22);
+        ok = frame != NULL;
+        img_free(face);
+        img_free(frame);
     }
     img_free(logo);
-    img_free(scene);
+    if (!ok) {
+        log_msg("  error: the title screen art (OMO_WS, OMO_TITLE_WS, OMO_BULB_WS) is missing from the game files");
+        title_art_free(t);
+    }
+    return ok;
+}
+
+void assets_build_icons(Game* g, Node* atlas, Buf* icon0, Buf* pic1) {
+    TitleArt t;
+    if (!title_art(g, atlas, &t)) return;
+    Image* icon = fit_rgb(t.mark, 144, 80, 0xFFFFFF);
+    Image* bg = fit_rgb(t.scene, 480, 272, 0xFFFFFF);
+    png_encode(icon, 0, icon0);
+    png_encode(bg, 0, pic1);
+    img_free(icon);
+    img_free(bg);
+    title_art_free(&t);
+}
+
+int assets_build_vita_art(Game* g, Node* atlas, Buf* icon0, Buf* bg, Buf* startup) {
+    TitleArt t;
+    if (!title_art(g, atlas, &t)) return 0;
+    Image* icon = fit_rgb(t.bust, 128, 128, 0xFFFFFF);
+    Image* back = fit_rgb(t.scene, 840, 500, 0xFFFFFF);
+    Image* gate = fit_rgb(t.mark, 280, 158, 0xFFFFFF);
+    int ok = png_encode_indexed(icon, icon0) && png_encode_indexed(back, bg) && png_encode_indexed(gate, startup);
+    img_free(icon);
+    img_free(back);
+    img_free(gate);
+    title_art_free(&t);
+    return ok;
+}
+
+static Image* upscale_nearest(const Image* src, int k) {
+    Image* out = img_new(src->w * k, src->h * k);
+    for (int y = 0; y < out->h; y++) {
+        for (int x = 0; x < out->w; x++) memcpy(out->px + ((size_t)y * out->w + x) * 4, src->px + ((size_t)(y / k) * src->w + x / k) * 4, 4);
+    }
+    return out;
+}
+
+int assets_build_ps3_art(Game* g, Node* atlas, Buf* icon0, Buf* pic1) {
+    TitleArt t;
+    if (!title_art(g, atlas, &t)) return 0;
+    Image* icon = fit_rgb(t.mark, 320, 176, 0xFFFFFF);
+    Image* big = upscale_nearest(t.scene, 3);
+    Image* back = fit_rgb(big, 1920, 1080, 0xFFFFFF);
+    int ok = png_encode(icon, 0, icon0) && png_encode(back, 0, pic1);
+    img_free(icon);
+    img_free(big);
+    img_free(back);
+    title_art_free(&t);
+    return ok;
+}
+
+int assets_build_ps2_icon(Game* g, Node* atlas, Buf* sys, Buf* icn) {
+    TitleArt t;
+    if (!title_art(g, atlas, &t)) return 0;
+    ps2_icon_sys("OMORI", sys);
+    ps2_icon_icn(t.bust, icn);
+    title_art_free(&t);
+    return 1;
+}
+
+static void put_utf16(uint8_t* dst, size_t cap, const char* text) {
+    size_t n = 0;
+    for (const char* c = text; *c && (n + 1) * 2 <= cap; c++, n++) {
+        dst[n * 2] = (uint8_t)*c;
+        dst[n * 2 + 1] = 0;
+    }
+}
+
+static void put_icon(uint8_t* dst, const Image* img) {
+    int w = img->w;
+    for (int y = 0; y < img->h; y++) {
+        for (int x = 0; x < w; x++) {
+            const uint8_t* p = img->px + ((size_t)y * w + x) * 4;
+            uint16_t v = (uint16_t)(((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
+            int m = 0;
+            for (int i = 0; i < 3; i++) m |= ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1);
+            size_t at = (((size_t)(y >> 3) * (size_t)(w >> 3) + (size_t)(x >> 3)) * 64 + (size_t)m) * 2;
+            dst[at] = (uint8_t)v;
+            dst[at + 1] = (uint8_t)(v >> 8);
+        }
+    }
+}
+
+int assets_build_smdh(Game* g, Node* atlas, Buf* out) {
+    Image* src = NULL;
+    Buf png = {0};
+    if (game_read(g, "icon/icon.png", &png)) src = img_load_png(png.data, png.len);
+    buf_free(&png);
+    if (!src) src = atlas_virtual(g, atlas, "img/pictures/OMO_TITLE_WS.png");
+    if (!src) {
+        log_msg("  warning: the game icon is missing, the HOME menu will show no icon");
+        return 0;
+    }
+    Image* big = fit_rgb(src, 48, 48, 0xFFFFFF);
+    Image* small = fit_rgb(src, 24, 24, 0xFFFFFF);
+    img_free(src);
+    uint8_t* d = xcalloc(0x36C0, 1);
+    memcpy(d, "SMDH", 4);
+    for (int i = 0; i < 16; i++) {
+        uint8_t* t = d + 8 + (size_t)i * 0x200;
+        put_utf16(t, 0x80, "OMORI");
+        put_utf16(t + 0x80, 0x100, "OMORI (unofficial 3DS port)");
+        put_utf16(t + 0x180, 0x80, "kotwicha");
+    }
+    static const uint8_t ratings[16] = {0xA0, 0xA0, 0x00, 0xA0, 0xA0, 0x00, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00};
+    memcpy(d + 0x2008, ratings, 16);
+    memset(d + 0x2018, 0xFF, 4);
+    d[0x2028] = 0x41;
+    d[0x2029] = 0x01;
+    put_icon(d + 0x2040, small);
+    put_icon(d + 0x24C0, big);
+    img_free(big);
+    img_free(small);
+    buf_put(out, d, 0x36C0);
+    free(d);
+    return 1;
+}
+
+int assets_build_hbc_icon(Game* g, Node* atlas, Buf* png) {
+    TitleArt t;
+    if (!title_art(g, atlas, &t)) return 0;
+    Image* icon = fit_rgb(t.mark, 128, 48, 0xFFFFFF);
+    int ok = png_encode(icon, 0, png);
+    img_free(icon);
+    title_art_free(&t);
+    return ok;
 }

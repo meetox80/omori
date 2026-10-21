@@ -54,7 +54,7 @@ struct Entry {
 };
 
 struct DataFile {
-    FILE* f = nullptr;
+    plat::File* f = nullptr;
     int64_t base = 0;
     int64_t size = 0;
     int64_t pos = 0;
@@ -65,37 +65,37 @@ struct DataFile {
 
 static std::string g_source;
 static std::string g_dir;
-static std::vector<FILE*> g_idle;
+static std::vector<plat::File*> g_idle;
 static plat::Mutex* g_idle_lock = nullptr;
 constexpr size_t MAX_IDLE = 4;
 
-static FILE* take_pack_handle() {
+static plat::File* take_pack_handle() {
     if (!g_idle_lock) g_idle_lock = plat::mutex_create();
-    FILE* f = nullptr;
+    plat::File* f = nullptr;
     plat::mutex_lock(g_idle_lock);
     if (!g_idle.empty()) {
         f = g_idle.back();
         g_idle.pop_back();
     }
     plat::mutex_unlock(g_idle_lock);
-    return f ? f : std::fopen(g_source.c_str(), "rb");
+    return f ? f : plat::file_open(g_source);
 }
 
-static void give_pack_handle(FILE* f) {
+static void give_pack_handle(plat::File* f) {
     plat::mutex_lock(g_idle_lock);
     bool keep = g_idle.size() < MAX_IDLE;
     if (keep) g_idle.push_back(f);
     plat::mutex_unlock(g_idle_lock);
-    if (!keep) std::fclose(f);
+    if (!keep) plat::file_close(f);
 }
 
 void drop_idle_handles() {
     if (!g_idle_lock) return;
     plat::mutex_lock(g_idle_lock);
-    std::vector<FILE*> old;
+    std::vector<plat::File*> old;
     old.swap(g_idle);
     plat::mutex_unlock(g_idle_lock);
-    for (FILE* f : old) std::fclose(f);
+    for (plat::File* f : old) plat::file_close(f);
 }
 static bool g_packed = false;
 static int64_t g_base = 0;
@@ -104,28 +104,35 @@ static std::vector<char> g_names;
 
 static uint32_t rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
 
-static int64_t pack_base(FILE* f) {
-    uint8_t h[40];
-    if (std::fseek(f, 0, SEEK_SET) != 0 || std::fread(h, 1, 8, f) != 8) return -1;
+static int64_t pack_base(plat::File* f) {
+    uint8_t h[44];
+    if (!plat::file_seek(f, 0) || plat::file_read(f, h, 8) != 8) return -1;
     if (std::memcmp(h, "TPAK", 4) == 0) return 0;
-    if (std::memcmp(h, "\0PBP", 4) != 0 || std::fread(h + 8, 1, 32, f) != 32) return -1;
-    int64_t base = rd32(h + 36);
+    int64_t base;
+    if (std::memcmp(h, "3DSX", 4) == 0) {
+        if ((h[4] | (h[5] << 8)) < 0x2C || plat::file_read(f, h + 8, 36) != 36) return -1;
+        base = rd32(h + 40);
+        if (base == 0) return -1;
+    } else {
+        if (std::memcmp(h, "\0PBP", 4) != 0 || plat::file_read(f, h + 8, 32) != 32) return -1;
+        base = rd32(h + 36);
+    }
     uint8_t m[4];
-    if (std::fseek(f, (long)base, SEEK_SET) != 0 || std::fread(m, 1, 4, f) != 4 || std::memcmp(m, "TPAK", 4) != 0) return -1;
+    if (!plat::file_seek(f, base) || plat::file_read(f, m, 4) != 4 || std::memcmp(m, "TPAK", 4) != 0) return -1;
     return base;
 }
 
 bool has_pack(const std::string& path) {
-    FILE* f = std::fopen(path.c_str(), "rb");
+    plat::File* f = plat::file_open(path);
     if (!f) return false;
     bool ok = pack_base(f) >= 0;
-    std::fclose(f);
+    plat::file_close(f);
     return ok;
 }
 
-static bool load_index(FILE* f, int64_t base) {
+static bool load_index(plat::File* f, int64_t base) {
     uint8_t h[16];
-    if (std::fseek(f, (long)base, SEEK_SET) != 0 || std::fread(h, 1, 16, f) != 16) return false;
+    if (!plat::file_seek(f, base) || plat::file_read(f, h, 16) != 16) return false;
     if (std::memcmp(h, "TPAK", 4) != 0) return false;
     uint32_t version = rd32(h + 4);
     uint32_t count = 0, names = 0;
@@ -134,17 +141,18 @@ static bool load_index(FILE* f, int64_t base) {
         names = rd32(h + 12);
     } else if (version == 2) {
         uint8_t t[16];
-        if (std::fseek(f, -16, SEEK_END) != 0 || std::fread(t, 1, 16, f) != 16 || std::memcmp(t, "TPKI", 4) != 0) return false;
+        int64_t size = plat::file_size(f);
+        if (size < 16 || !plat::file_seek(f, size - 16) || plat::file_read(f, t, 16) != 16 || std::memcmp(t, "TPKI", 4) != 0) return false;
         count = rd32(t + 4);
         names = rd32(t + 8);
-        if (std::fseek(f, (long)(base + rd32(t + 12)), SEEK_SET) != 0) return false;
+        if (!plat::file_seek(f, base + rd32(t + 12))) return false;
     } else {
         return false;
     }
     std::vector<uint8_t> raw((size_t)count * 12);
-    if (count && std::fread(raw.data(), 1, raw.size(), f) != raw.size()) return false;
+    if (count && plat::file_read(f, raw.data(), raw.size()) != raw.size()) return false;
     g_names.assign(names + 1, 0);
-    if (names && std::fread(g_names.data(), 1, names, f) != names) return false;
+    if (names && plat::file_read(f, g_names.data(), names) != names) return false;
     g_entries.resize(count);
     for (uint32_t i = 0; i < count; i++) {
         g_entries[i] = {rd32(&raw[i * 12]), rd32(&raw[i * 12 + 4]), rd32(&raw[i * 12 + 8])};
@@ -160,11 +168,11 @@ bool init_data(const std::string& source) {
     g_names.clear();
     struct stat st;
     bool is_dir = stat(source.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
-    FILE* f = is_dir ? nullptr : std::fopen(source.c_str(), "rb");
+    plat::File* f = is_dir ? nullptr : plat::file_open(source);
     if (f) {
         int64_t base = pack_base(f);
         bool ok = base >= 0 && load_index(f, base);
-        std::fclose(f);
+        plat::file_close(f);
         if (ok) {
             g_packed = true;
             g_base = base;
@@ -197,26 +205,25 @@ DataFile* open_data(const std::string& rel) {
     if (g_packed) {
         const Entry* e = find(rel);
         if (!e) return nullptr;
-        FILE* f = take_pack_handle();
+        plat::File* f = take_pack_handle();
         if (!f) return nullptr;
         DataFile* d = new DataFile();
         d->f = f;
         d->pooled = true;
         d->base = g_base + e->offset;
         d->size = e->size;
-        if (std::fseek(f, (long)d->base, SEEK_SET) != 0) {
+        if (!plat::file_seek(f, d->base)) {
             data_close(d);
             return nullptr;
         }
         return d;
     }
-    FILE* f = std::fopen((g_dir + "/" + rel).c_str(), "rb");
+    plat::File* f = plat::file_open(g_dir + "/" + rel);
     if (!f) return nullptr;
     DataFile* d = new DataFile();
     d->f = f;
-    std::fseek(f, 0, SEEK_END);
-    d->size = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
+    d->size = plat::file_size(f);
+    plat::file_seek(f, 0);
     if (d->size < 0) {
         data_close(d);
         return nullptr;
@@ -228,14 +235,14 @@ DataFile* open_data_memory(const std::string& rel, size_t max_bytes) {
     DataFile* d = open_data(rel);
     if (!d || d->size < 0 || (uint64_t)d->size > max_bytes) return d;
     d->mem.resize((size_t)d->size);
-    size_t got = d->size ? std::fread(d->mem.data(), 1, d->mem.size(), d->f) : 0;
+    size_t got = d->size ? plat::file_read(d->f, d->mem.data(), d->mem.size()) : 0;
     if (got != d->mem.size()) {
         d->mem.clear();
-        std::fseek(d->f, (long)d->base, SEEK_SET);
+        plat::file_seek(d->f, d->base);
         return d;
     }
     if (d->pooled) give_pack_handle(d->f);
-    else std::fclose(d->f);
+    else plat::file_close(d->f);
     d->f = nullptr;
     d->memory = true;
     d->pos = 0;
@@ -251,7 +258,7 @@ size_t data_read(DataFile* d, void* dst, size_t size) {
         d->pos += (int64_t)size;
         return size;
     }
-    size_t got = std::fread(dst, 1, size, d->f);
+    size_t got = plat::file_read(d->f, dst, size);
     d->pos += (int64_t)got;
     return got;
 }
@@ -263,7 +270,7 @@ int data_seek(DataFile* d, int64_t off, int whence) {
         d->pos = p;
         return 0;
     }
-    if (std::fseek(d->f, (long)(d->base + p), SEEK_SET) != 0) return -1;
+    if (!plat::file_seek(d->f, d->base + p)) return -1;
     d->pos = p;
     return 0;
 }
@@ -276,7 +283,7 @@ void data_close(DataFile* d) {
     if (!d) return;
     if (d->f) {
         if (d->pooled) give_pack_handle(d->f);
-        else std::fclose(d->f);
+        else plat::file_close(d->f);
     }
     delete d;
 }

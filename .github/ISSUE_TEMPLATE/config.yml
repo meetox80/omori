@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Build the EBOOT in your browser
-    url: https://psp-omori.ox80.cc
+  - name: Build it in your browser
+    url: https://omori.ox80.cc
     about: The builder runs right in your browser, nothing to download.
   - name: Buy OMORI on Steam
     url: https://store.steampowered.com/app/1150690/OMORI/
