@@ -6,6 +6,8 @@
 
 <p align="center"><a href="https://omori.ox80.cc"><b>Build it in your browser at omori.ox80.cc</b></a></p>
 
+<p align="center">Updates on Telegram: <a href="https://t.me/kotwisia">t.me/kotwisia</a></p>
+
 <p align="center">
   <a href="#get-started"><b>Get started</b></a> &nbsp;&nbsp;|&nbsp;&nbsp;
   <a href="#consoles"><b>Consoles</b></a> &nbsp;&nbsp;|&nbsp;&nbsp;
