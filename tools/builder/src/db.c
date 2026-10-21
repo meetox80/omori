@@ -1,6 +1,7 @@
 #include "db.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -207,6 +208,61 @@ static void prepare_objects(Node* arr) {
     }
 }
 
+static double js_to_number(const char* s, size_t n) {
+    while (n && isspace((unsigned char)*s)) s++, n--;
+    while (n && isspace((unsigned char)s[n - 1])) n--;
+    if (!n) return 0;
+    char* t = xstrndup(s, n);
+    char* end;
+    double v = strtod(t, &end);
+    int ok = *end == 0;
+    free(t);
+    return ok ? v : NAN;
+}
+
+static void battle_commands_lists(Node* arr) {
+    Rx* start = rx_compile("<BattleCommandsList>", "i");
+    for (size_t i = 0; arr && i < arr->count; i++) {
+        Node* o = arr->items[i];
+        Node* note = o->type == N_OBJ ? node_get(o, "note") : NULL;
+        if (!note || note->type != N_STR || !note->len) continue;
+        Node* list = node_arr();
+        int add = 0;
+        const char* s = note->str;
+        size_t pos = 0;
+        while (pos < note->len) {
+            size_t e = pos;
+            while (e < note->len && s[e] != '\r' && s[e] != '\n') e++;
+            size_t len = e - pos;
+            RxMatch m;
+            char* line = xstrndup(s + pos, len);
+            if (rx_search(start, line, len, 0, &m)) add = 1;
+            else if (strstr(line, "</BattleCommandsList>")) add = 0;
+            else if (add) {
+                char* colon = strchr(line, ':');
+                size_t tl = colon ? (size_t)(colon - line) : len;
+                char* type = xstrndup(line, tl);
+                for (char* c = type; *c; c++) *c = (char)tolower((unsigned char)*c);
+                double id = NAN;
+                if (colon) {
+                    char* next = strchr(colon + 1, ':');
+                    id = js_to_number(colon + 1, next ? (size_t)(next - colon - 1) : strlen(colon + 1));
+                }
+                Node* cmd = node_obj();
+                node_set(cmd, "type", node_str(type));
+                node_set(cmd, "id", node_num(id));
+                node_push(list, cmd);
+                free(type);
+            }
+            free(line);
+            pos = e;
+            while (pos < note->len && (s[pos] == '\r' || s[pos] == '\n')) pos++;
+        }
+        node_set(node_get(o, "meta"), "BattleCommandsList", list);
+    }
+    rx_free(start);
+}
+
 static int key_is_eval(const char* key) {
     size_t n = strlen(key);
     if (n >= 4 && !strcmp(key + n - 4, "Eval")) return 1;
@@ -300,6 +356,7 @@ Node* db_build(Game* g, Pack* pack, Node** lang_out) {
         Node* arr = game_json(g, DB_FILES[i][1]);
         const char* key = DB_FILES[i][0];
         if (strcmp(key, "mapInfos") && strcmp(key, "animations")) prepare_objects(arr);
+        if (!strcmp(key, "actors")) battle_commands_lists(arr);
         node_set(root, key, arr);
     }
     Node* plugins = node_obj();

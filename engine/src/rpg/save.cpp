@@ -765,6 +765,7 @@ void actor_io(Ar& ar, GameActor& a) {
         a.has_anchor_x = false;
         a.has_anchor_y = false;
         a.disable_dashing_cache = -1;
+        if (!a.battle_commands_list.is_array()) a.init_battle_commands_list();
     }
 }
 
