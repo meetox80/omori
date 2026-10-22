@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <unordered_map>
 #include <vector>
 
 #include "../platform.h"
@@ -77,13 +79,113 @@ static Blend g_blend = Blend::Normal;
 static bool g_smooth = false;
 static bool g_flat = false;
 
-void* alloc(size_t bytes) { return memalign(32, bytes ? (bytes + 31) & ~(size_t)31 : 32); }
+constexpr size_t ARENA_KEEP = 16u << 20;
+constexpr size_t ARENA_MIN_BLOCK = 32u << 10;
+constexpr uint32_t ARENA_UNIT = 32;
 
-void release(void* p) { std::free(p); }
+struct Arena {
+    uint8_t* base = nullptr;
+    uint32_t size = 0;
+    uint32_t free_bytes = 0;
+    std::map<uint32_t, uint32_t> free_blocks;
+    std::unordered_map<uint32_t, uint32_t> used_blocks;
+    mutex_t lock = LWP_MUTEX_NULL;
+};
 
-size_t arena_free_bytes() { return 0; }
+static Arena g_arena;
+static volatile lwp_t g_arena_owner = LWP_THREAD_NULL;
 
-void* arena_try_alloc(size_t) { return nullptr; }
+static void arena_init() {
+    if (g_arena.base) return;
+    u32 level = IRQ_Disable();
+    uintptr_t lo = (uintptr_t)SYS_GetArena2Lo(), hi = (uintptr_t)SYS_GetArena2Hi() & ~(uintptr_t)(ARENA_UNIT - 1);
+    size_t bytes = hi > lo + ARENA_KEEP ? (hi - lo - ARENA_KEEP) & ~(size_t)(ARENA_UNIT - 1) : 0;
+    if (bytes) SYS_SetArena2Hi((void*)(hi - bytes));
+    IRQ_Restore(level);
+    if (!bytes) return;
+    g_arena.base = (uint8_t*)(hi - bytes);
+    g_arena.size = (uint32_t)bytes;
+    g_arena.free_bytes = (uint32_t)bytes;
+    g_arena.free_blocks[0] = (uint32_t)bytes;
+    LWP_MutexInit(&g_arena.lock, false);
+}
+
+static void* arena_alloc(size_t bytes) {
+    if (!g_arena.base) return nullptr;
+    uint32_t need = (uint32_t)((bytes + ARENA_UNIT - 1) / ARENA_UNIT * ARENA_UNIT);
+    if (need == 0) need = ARENA_UNIT;
+    LWP_MutexLock(g_arena.lock);
+    g_arena_owner = LWP_GetSelf();
+    auto best = g_arena.free_blocks.end();
+    for (auto it = g_arena.free_blocks.begin(); it != g_arena.free_blocks.end(); ++it) {
+        if (it->second >= need && (best == g_arena.free_blocks.end() || it->second < best->second)) {
+            best = it;
+            if (it->second == need) break;
+        }
+    }
+    void* out = nullptr;
+    if (best != g_arena.free_blocks.end()) {
+        uint32_t at = best->first, len = best->second;
+        g_arena.free_blocks.erase(best);
+        if (len > need) g_arena.free_blocks[at + need] = len - need;
+        g_arena.used_blocks[at] = need;
+        g_arena.free_bytes -= need;
+        out = g_arena.base + at;
+    }
+    g_arena_owner = LWP_THREAD_NULL;
+    LWP_MutexUnlock(g_arena.lock);
+    return out;
+}
+
+static bool arena_owns(const void* p) { return g_arena.base && p >= g_arena.base && p < g_arena.base + g_arena.size; }
+
+static void arena_release(void* p) {
+    uint32_t at = (uint32_t)((uint8_t*)p - g_arena.base);
+    LWP_MutexLock(g_arena.lock);
+    g_arena_owner = LWP_GetSelf();
+    auto u = g_arena.used_blocks.find(at);
+    if (u != g_arena.used_blocks.end()) {
+        uint32_t len = u->second;
+        g_arena.used_blocks.erase(u);
+        g_arena.free_bytes += len;
+        auto next = g_arena.free_blocks.lower_bound(at);
+        if (next != g_arena.free_blocks.end() && next->first == at + len) {
+            len += next->second;
+            next = g_arena.free_blocks.erase(next);
+        }
+        if (next != g_arena.free_blocks.begin()) {
+            auto prev = std::prev(next);
+            if (prev->first + prev->second == at) {
+                prev->second += len;
+                len = 0;
+            }
+        }
+        if (len) g_arena.free_blocks[at] = len;
+    }
+    g_arena_owner = LWP_THREAD_NULL;
+    LWP_MutexUnlock(g_arena.lock);
+}
+
+void* alloc(size_t bytes) {
+    size_t n = bytes ? (bytes + 31) & ~(size_t)31 : 32;
+    if (n >= ARENA_MIN_BLOCK && g_arena_owner != LWP_GetSelf()) {
+        if (void* p = arena_alloc(n)) return p;
+    }
+    return memalign(32, n);
+}
+
+void release(void* p) {
+    if (!p) return;
+    if (arena_owns(p)) arena_release(p);
+    else std::free(p);
+}
+
+size_t arena_free_bytes() { return g_arena.free_bytes; }
+
+void* arena_try_alloc(size_t bytes) {
+    if (g_arena_owner == LWP_GetSelf()) return nullptr;
+    return arena_alloc(bytes);
+}
 
 static inline size_t tile_at(int tw, int x, int y) { return ((size_t)(y >> 2) * (size_t)(tw >> 2) + (size_t)(x >> 2)) * 64 + (size_t)((y & 3) * 4 + (x & 3)) * 2; }
 
@@ -284,6 +386,7 @@ static void viewport(int w, int h) {
 }
 
 void init() {
+    arena_init();
     VIDEO_Init();
     g_mode = VIDEO_GetPreferredMode(nullptr);
     g_wide = CONF_GetAspectRatio() == CONF_ASPECT_16_9;
@@ -709,7 +812,7 @@ void end_frame() {
 int list_peak_bytes() { return (int)g_ring_peak; }
 
 bool reclaim_memory() {
-    if (g_frame_open) return false;
+    flush();
     GX_DrawDone();
     collect_garbage();
     return true;

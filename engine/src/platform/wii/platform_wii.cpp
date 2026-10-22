@@ -40,6 +40,12 @@ static void wiimote_power(s32) { g_running = false; }
 
 size_t heap_limit() { return g_heap_limit; }
 
+static size_t heap_free() {
+    struct mallinfo mi = mallinfo();
+    size_t mem1 = (uintptr_t)sbrk(0) >= 0x90000000u ? 0 : (size_t)SYS_GetArena1Size();
+    return mem1 + (size_t)SYS_GetArena2Size() + (size_t)mi.fordblks + gfx::arena_free_bytes();
+}
+
 static std::string app_dir(int argc, char** argv) {
     if (argc > 0 && argv && argv[0]) {
         std::string a = argv[0];
@@ -53,7 +59,7 @@ static std::string app_dir(int argc, char** argv) {
 }
 
 bool init(int argc, char** argv) {
-    g_heap_limit = (size_t)SYS_GetArena1Size() + (size_t)SYS_GetArena2Size();
+    g_heap_limit = (size_t)SYS_GetArena1Size() + (size_t)SYS_GetArena2Size() + (size_t)mallinfo().arena;
     g_start = gettime();
     SYS_SetPowerCallback(power_pressed);
     SYS_SetResetCallback(reset_pressed);
@@ -166,8 +172,8 @@ uint64_t time_us() { return (uint64_t)ticks_to_microsecs(diff_ticks(g_start, get
 double time_seconds() { return (double)time_us() / 1000000.0; }
 
 size_t heap_used() {
-    struct mallinfo mi = mallinfo();
-    return (size_t)mi.uordblks;
+    size_t free = heap_free();
+    return g_heap_limit > free ? g_heap_limit - free : 0;
 }
 
 static void write_shot() {
@@ -209,6 +215,7 @@ void log(const char* fmt, ...) {
     va_end(ap);
     std::fputc('\n', g_log);
     std::fflush(g_log);
+    if (g_opt.perf) fsync(fileno(g_log));
 }
 
 bool debug_warp(int& map, int& x, int& y, int& d) { return testing::warp_due(g_frame, map, x, y, d); }
@@ -254,11 +261,7 @@ void mutex_lock(Mutex* m) { LWP_MutexLock(m->m); }
 void mutex_unlock(Mutex* m) { LWP_MutexUnlock(m->m); }
 void sleep_ms(int ms) { usleep((useconds_t)ms * 1000); }
 
-size_t free_memory() {
-    struct mallinfo mi = mallinfo();
-    size_t used = (size_t)mi.uordblks;
-    return g_heap_limit > used ? g_heap_limit - used : 0;
-}
+size_t free_memory() { return std::min(heap_free(), g_heap_limit); }
 
 }
 
@@ -343,14 +346,21 @@ void plat::set_low_memory_handler(void (*fn)()) {
     g_main_thread = LWP_GetSelf();
 }
 
+constexpr size_t LARGE_BLOCK = 64 * 1024;
+
+static void* try_alloc(size_t size) {
+    void* p = size >= LARGE_BLOCK ? gfx::arena_try_alloc(size) : nullptr;
+    return p ? p : std::malloc(size);
+}
+
 static void* checked_alloc(size_t size) {
     if (size == 0) size = 1;
-    void* p = std::malloc(size);
+    void* p = try_alloc(size);
     if (!p && g_low_memory && !g_in_low_memory && LWP_GetSelf() == g_main_thread) {
         g_in_low_memory = true;
         g_low_memory();
         g_in_low_memory = false;
-        p = std::malloc(size);
+        p = try_alloc(size);
         if (p) plat::log("low memory: freed caches for %u bytes", (unsigned)size);
     }
     if (!p) {
@@ -363,7 +373,7 @@ static void* checked_alloc(size_t size) {
 
 void* operator new(size_t size) { return checked_alloc(size); }
 void* operator new[](size_t size) { return checked_alloc(size); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, size_t) noexcept { std::free(p); }
-void operator delete[](void* p, size_t) noexcept { std::free(p); }
+void operator delete(void* p) noexcept { gfx::release(p); }
+void operator delete[](void* p) noexcept { gfx::release(p); }
+void operator delete(void* p, size_t) noexcept { gfx::release(p); }
+void operator delete[](void* p, size_t) noexcept { gfx::release(p); }
