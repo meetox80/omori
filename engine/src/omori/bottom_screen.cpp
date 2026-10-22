@@ -25,7 +25,7 @@ namespace bottom {
 
 namespace {
 
-enum class Mode { Off, View, Play };
+enum class Mode { Off, Hidden, Play };
 
 constexpr int TAB_COUNT = 4;
 constexpr double TAB_Y = 6;
@@ -232,7 +232,7 @@ Mode current_mode() {
         name == "Scene_Gameover")
         return Mode::Off;
     if (rpg::game_party().size() == 0) return Mode::Off;
-    return name == "Scene_Map" ? Mode::Play : Mode::View;
+    return name == "Scene_Map" ? Mode::Play : Mode::Hidden;
 }
 
 bool can_act() {
@@ -733,11 +733,17 @@ void update_bottom() {
             g_down = false;
             g_press = Press();
             g_sig.clear();
+        } else if (mode == Mode::Hidden) {
+            g_targeting = false;
+            g_down = false;
+            g_press = Press();
+            g_sig.clear();
+        } else if (g_ui) {
+            g_ui->fade = 0;
         }
     }
-    if (g_mode == Mode::Off) return;
+    if (g_mode != Mode::Play) return;
     if (needs_rebuild()) build();
-    if (g_mode != Mode::Play) g_targeting = false;
     handle_touch();
     g_ui->root->update();
     sync();
@@ -753,7 +759,7 @@ void render_bottom() {
     g_dirty = false;
     gfx::Surface keep = gfx::current_target();
     gfx::set_target(gfx::Surface::Bottom);
-    if (g_ui) {
+    if (g_ui && g_mode == Mode::Play) {
         g2d::RenderState rs;
         rs.clip = true;
         rs.cx0 = (int)images::OFFSET_X;
