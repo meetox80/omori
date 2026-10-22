@@ -37,6 +37,7 @@ public:
 
 FontFace* font_for(const std::string& face, int size, bool outline);
 void release_font_atlases();
+void prefetch_font(const std::string& face, int size, bool outline);
 void set_font_atlas_budget(size_t bytes);
 float measure_text(const std::string& face, int size, const std::string& text);
 uint32_t decode_utf8(const std::string& s, size_t& i);

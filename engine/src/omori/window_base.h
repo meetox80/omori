@@ -145,6 +145,7 @@ public:
     virtual void make_font_bigger();
     virtual void make_font_smaller();
     virtual double calc_text_height(const TextState& ts, bool all);
+    void prefetch_text_fonts(const std::string& text);
     void draw_icon(int icon_index, double x, double y);
     void draw_face(const std::string& face_name, int face_index, double x, double y, double width = 0, double height = 0);
     void draw_character(const std::string& name, int index, double x, double y);

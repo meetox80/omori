@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "../core/regex.h"
@@ -733,6 +734,26 @@ double WindowBase::calc_text_height(const TextState& ts, bool all) {
     }
     c().font_size = last;
     return h;
+}
+
+void WindowBase::prefetch_text_fonts(const std::string& text) {
+    int size = c().font_size;
+    g2d::prefetch_font(c().font_face, size, c().outline_width > 0);
+    for (size_t k = 0; k + 1 < text.size(); k++) {
+        if (text[k] != ESC) continue;
+        char n = text[k + 1];
+        if (n == '{') {
+            make_font_bigger();
+        } else if (n == '}') {
+            make_font_smaller();
+        } else if (k + 3 < text.size() && (n == 'F' || n == 'f') && (text[k + 2] == 'S' || text[k + 2] == 's') && text[k + 3] == '[') {
+            c().font_size = std::atoi(text.c_str() + k + 4);
+        } else {
+            continue;
+        }
+        g2d::prefetch_font(c().font_face, c().font_size, c().outline_width > 0);
+    }
+    c().font_size = size;
 }
 
 void WindowBase::draw_icon(int icon_index, double x, double y) {

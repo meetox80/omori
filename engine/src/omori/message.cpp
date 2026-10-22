@@ -994,6 +994,7 @@ void WindowMessage::start_message() {
     text_state.text = convert_escape_characters(rpg::game_message().all_text());
     has_text_state = true;
     new_page(text_state);
+    prefetch_text_fonts(text_state.text);
     update_placement();
     update_background();
     open();

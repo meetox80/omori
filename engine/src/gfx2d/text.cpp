@@ -138,6 +138,109 @@ static void drop_atlas(FontFace* f) {
     faces.erase(std::remove(faces.begin(), faces.end(), f), faces.end());
 }
 
+struct AtlasLoad {
+    FontFace* face = nullptr;
+    std::string path;
+    bool started = false;
+    bool done = false;
+    bool ok = false;
+    uint64_t finished = 0;
+    int w = 0, h = 0;
+    std::vector<uint16_t> px;
+};
+
+constexpr size_t MAX_ATLAS_LOADS = 4;
+constexpr uint64_t ATLAS_LOAD_KEEP_US = 10000000;
+
+static plat::Mutex* g_load_mutex = nullptr;
+static std::vector<std::shared_ptr<AtlasLoad>> g_loads;
+static bool g_loader = false;
+
+static void atlas_loader() {
+    for (;;) {
+        std::shared_ptr<AtlasLoad> job;
+        plat::mutex_lock(g_load_mutex);
+        for (auto& l : g_loads) {
+            if (l->started) continue;
+            l->started = true;
+            job = l;
+            break;
+        }
+        plat::mutex_unlock(g_load_mutex);
+        if (!job) {
+            plat::sleep_ms(4);
+            continue;
+        }
+        int w = 0, h = 0;
+        std::vector<uint16_t> px;
+        bool ok = false;
+        try {
+            ok = load_linear(job->path, w, h, px);
+        } catch (const std::bad_alloc&) {
+            std::vector<uint16_t>().swap(px);
+        }
+        plat::mutex_lock(g_load_mutex);
+        job->w = w;
+        job->h = h;
+        job->px.swap(px);
+        job->ok = ok;
+        job->done = true;
+        job->finished = plat::time_us();
+        plat::mutex_unlock(g_load_mutex);
+    }
+}
+
+static void expire_loads_locked() {
+    uint64_t now = plat::time_us();
+    g_loads.erase(std::remove_if(g_loads.begin(), g_loads.end(),
+                                 [now](const std::shared_ptr<AtlasLoad>& l) { return l->done && now - l->finished > ATLAS_LOAD_KEEP_US; }),
+                  g_loads.end());
+}
+
+static bool take_prefetched(FontFace* face, std::vector<uint16_t>& out, int& w, int& h) {
+    if (!g_loader) return false;
+    for (;;) {
+        plat::mutex_lock(g_load_mutex);
+        auto it = std::find_if(g_loads.begin(), g_loads.end(), [face](const std::shared_ptr<AtlasLoad>& l) { return l->face == face; });
+        if (it == g_loads.end()) {
+            plat::mutex_unlock(g_load_mutex);
+            return false;
+        }
+        std::shared_ptr<AtlasLoad> l = *it;
+        if (l->started && !l->done) {
+            plat::mutex_unlock(g_load_mutex);
+            plat::sleep_ms(1);
+            continue;
+        }
+        g_loads.erase(it);
+        plat::mutex_unlock(g_load_mutex);
+        if (!l->done || !l->ok) return false;
+        out.swap(l->px);
+        w = l->w;
+        h = l->h;
+        return true;
+    }
+}
+
+void prefetch_font(const std::string& face, int size, bool outline) {
+    FontFace* f = font_for(face, size, outline);
+    if (!f || !f->atlas.empty() || f->atlas_failed) return;
+    if (!g_loader) {
+        g_loads.reserve(MAX_ATLAS_LOADS);
+        g_load_mutex = plat::mutex_create();
+        if (!g_load_mutex || !plat::start_thread(atlas_loader)) return;
+        g_loader = true;
+    }
+    auto l = std::make_shared<AtlasLoad>();
+    l->face = f;
+    l->path = f->base + ".tex";
+    plat::mutex_lock(g_load_mutex);
+    expire_loads_locked();
+    bool known = std::any_of(g_loads.begin(), g_loads.end(), [f](const std::shared_ptr<AtlasLoad>& x) { return x->face == f; });
+    if (!known && g_loads.size() < MAX_ATLAS_LOADS) g_loads.push_back(std::move(l));
+    plat::mutex_unlock(g_load_mutex);
+}
+
 const uint16_t* FontFace::pixels() {
     last_use = ++g_atlas_clock;
     if (!atlas.empty()) return atlas.data();
@@ -145,7 +248,7 @@ const uint16_t* FontFace::pixels() {
     std::vector<uint16_t> loaded;
     int w = 0, h = 0;
     try {
-        if (!load_linear(base + ".tex", w, h, loaded)) {
+        if (!take_prefetched(this, loaded, w, h) && !load_linear(base + ".tex", w, h, loaded)) {
             plat::log("missing font atlas %s", base.c_str());
             atlas_failed = true;
             return nullptr;
@@ -175,6 +278,10 @@ void set_font_atlas_budget(size_t bytes) { g_atlas_budget = bytes; }
 void release_font_atlases() {
     std::vector<FontFace*> faces = resident_faces();
     for (FontFace* f : faces) drop_atlas(f);
+    if (!g_loader) return;
+    plat::mutex_lock(g_load_mutex);
+    g_loads.erase(std::remove_if(g_loads.begin(), g_loads.end(), [](const std::shared_ptr<AtlasLoad>& l) { return l->done; }), g_loads.end());
+    plat::mutex_unlock(g_load_mutex);
 }
 
 const GlyphInfo* FontFace::glyph(uint32_t cp) const {
