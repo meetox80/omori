@@ -9,6 +9,7 @@
 #include <cstring>
 #include <list>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "../platform/platform.h"
 #include "bytes.h"
@@ -62,6 +63,7 @@ struct Decoded {
     bool packed = false;
     bool ok = false;
     bool oom = false;
+    size_t need = 0;
 };
 
 static void free_decoded(Decoded& d) {
@@ -177,6 +179,7 @@ static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* d
 }
 
 static void make_room(size_t need, bool force);
+static void* alloc_pixels(size_t bytes);
 
 static Decoded decode_data(const std::string& rel, bool main_thread) {
     Decoded out;
@@ -256,13 +259,12 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
             pack.stride = c.stride;
             pack.swizzled = (out.flags & 1) != 0;
         }
-        c.pixels = gfx::alloc(rsize);
-        if (!c.pixels && main_thread) {
-            make_room(rsize, true);
-            c.pixels = gfx::alloc(rsize);
-        }
+        c.pixels = main_thread ? alloc_pixels(rsize) : gfx::alloc(rsize);
         if (!c.pixels || !inflate_range(f, off, csize, c.pixels, rsize, !main_thread, pack)) {
-            if (!c.pixels) out.oom = true;
+            if (!c.pixels) {
+                out.oom = true;
+                out.need = rsize;
+            }
             gfx::release(c.pixels);
             free_decoded(out);
             fs::data_close(f);
@@ -273,6 +275,7 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
             c.palette = (uint32_t*)gfx::alloc(1024);
             if (!c.palette) {
                 out.oom = true;
+                out.need = 1024;
                 gfx::release(c.pixels);
                 free_decoded(out);
                 fs::data_close(f);
@@ -386,11 +389,7 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     if (!pixels) {
         fs::DataFile* f = fs::open_data(img->source);
         if (!f) return nullptr;
-        pixels = gfx::alloc(c.rsize);
-        if (!pixels) {
-            make_room(need, true);
-            pixels = gfx::alloc(c.rsize);
-        }
+        pixels = alloc_pixels(c.rsize);
         bool ok = pixels && inflate_range(f, c.offset, c.csize, pixels, c.rsize, false, chunk_pack(img, c));
         fs::data_close(f);
         if (!ok) {
@@ -425,22 +424,29 @@ static bool over_heap(size_t need, size_t freed) {
 
 static void drop_chunks(const std::string* source);
 
+static size_t evict_one() {
+    auto victim = g_cache.end();
+    for (auto it = g_cache.begin(); it != g_cache.end(); ++it) {
+        if (!it->second.img || it->second.pinned || it->second.last + 2 > g_tick) continue;
+        if (!it->second.img->bytes && it->second.last + HEADER_KEEP_TICKS > g_tick) continue;
+        if (victim == g_cache.end() || it->second.last < victim->second.last) victim = it;
+    }
+    if (victim == g_cache.end()) return 0;
+    size_t bytes = victim->second.img->bytes;
+    g_used -= bytes;
+    if (victim->second.img->lazy) drop_chunks(&victim->second.img->source);
+    delete victim->second.img;
+    g_cache.erase(victim);
+    g_generation++;
+    return bytes ? bytes : 1;
+}
+
 static void evict(size_t need) {
     size_t freed = 0;
     while (g_used + need > g_budget || (g_used > 0 && over_heap(need, freed))) {
-        auto victim = g_cache.end();
-        for (auto it = g_cache.begin(); it != g_cache.end(); ++it) {
-            if (!it->second.img || it->second.pinned || it->second.last + 2 > g_tick) continue;
-            if (!it->second.img->bytes && it->second.last + HEADER_KEEP_TICKS > g_tick) continue;
-            if (victim == g_cache.end() || it->second.last < victim->second.last) victim = it;
-        }
-        if (victim == g_cache.end()) return;
-        g_used -= victim->second.img->bytes;
-        freed += victim->second.img->bytes;
-        if (victim->second.img->lazy) drop_chunks(&victim->second.img->source);
-        delete victim->second.img;
-        g_cache.erase(victim);
-        g_generation++;
+        size_t bytes = evict_one();
+        if (!bytes) return;
+        freed += bytes;
         if (over_heap(need, 0) && gfx::reclaim_memory()) freed = 0;
     }
 }
@@ -458,11 +464,25 @@ static void make_room(size_t need, bool force) {
     gfx::reclaim_memory();
 }
 
+static void* alloc_pixels(size_t bytes) {
+    void* p = gfx::alloc(bytes);
+    if (p) return p;
+    drop_chunks(nullptr);
+    gfx::reclaim_memory();
+    p = gfx::alloc(bytes);
+    while (!p && evict_one()) {
+        gfx::reclaim_memory();
+        p = gfx::alloc(bytes);
+    }
+    return p;
+}
+
 static plat::Mutex* g_mutex = nullptr;
 static std::vector<std::string> g_queue;
 static std::string g_working;
 static std::vector<std::pair<std::string, Decoded>> g_ready;
 static bool g_worker = false;
+static std::unordered_set<std::string> g_retried;
 
 struct ChunkJob {
     std::string source;
@@ -705,6 +725,7 @@ static void insert(const std::string& rel, Image* img) {
     e.img = img;
     e.last = g_tick;
     e.missing = img == nullptr;
+    g_retried.erase(rel);
     if (img) {
         evict(img->bytes);
         g_used += img->bytes;
@@ -717,18 +738,27 @@ static void insert(const std::string& rel, Image* img) {
 static void collect_ready(const std::string* want) {
     if (!g_worker) return;
     std::vector<std::pair<std::string, Decoded>> ready;
+    std::vector<std::string> requeue;
     plat::mutex_lock(g_mutex);
     ready.swap(g_ready);
     plat::mutex_unlock(g_mutex);
     for (auto& r : ready) {
         if (g_cache.count(r.first) || !r.second.ok) {
             free_decoded(r.second);
+            if (r.second.oom && !g_cache.count(r.first) && g_retried.insert(r.first).second) {
+                void* room = alloc_pixels(r.second.need);
+                if (room) {
+                    gfx::release(room);
+                    requeue.push_back(r.first);
+                }
+            }
             continue;
         }
         Image* img = finish(r.second);
         insert(r.first, img);
         if (img && img->lazy) warm_image(r.first, img);
     }
+    for (auto& rel : requeue) prefetch_path(rel);
     (void)want;
 }
 
@@ -880,6 +910,7 @@ void forget_recent() {
 void clear() {
     g_generation++;
     g_warm.clear();
+    g_retried.clear();
     drop_chunks(nullptr);
     for (auto& kv : g_cache) {
         if (!kv.second.pinned) delete kv.second.img;
