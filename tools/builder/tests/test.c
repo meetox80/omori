@@ -188,6 +188,18 @@ static void test_rx(void) {
     rx = rx_compile("(a*)*b", "");
     CHECK(rx_match_str(rx, "aaab", &m) && m.end[1] - m.start[1] == 3);
     rx_free(rx);
+    rx = rx_compile("\\x1bV\\[(\\d+)\\]", "gi");
+    CHECK(rx_match_str(rx, "say \x1bv[12] now", &m) && m.start[0] == 4 && m.end[1] - m.start[1] == 2);
+    CHECK(!rx_match_str(rx, "say V[12] now", &m));
+    rx_free(rx);
+    CHECK(rx_test("cat|dog", "", "hotdog"));
+    CHECK(rx_test("x?y", "", "zzy"));
+    CHECK(rx_test("[^a]b", "", "aacb"));
+    CHECK(!rx_test("[^a]b", "", "ab"));
+    CHECK(rx_test("(?=b)b", "", "aab"));
+    CHECK(rx_test("a*", "", ""));
+    CHECK(rx_test("$", "", "abc"));
+    CHECK(rx_test("(a)\\1", "", "xaa"));
 }
 
 static void test_yaml(void) {

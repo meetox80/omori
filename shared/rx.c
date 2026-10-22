@@ -64,6 +64,8 @@ struct Rx {
     int ngroups;
     int icase;
     int multiline;
+    int nullable;
+    uint8_t first[32];
 };
 
 typedef struct {
@@ -331,6 +333,43 @@ static RNode* parse_alt(RP* r) {
     return alt;
 }
 
+static int byte_matches(const RNode* n, int c, int icase) {
+    switch (n->kind) {
+    case R_CHAR: return icase ? tolower(c) == tolower(n->ch) : c == n->ch;
+    case R_ANY: return c != '\n' && c != '\r';
+    case R_CLASS: {
+        int in = set_has(n->set, c);
+        if (!in && icase) in = set_has(n->set, tolower(c)) || set_has(n->set, toupper(c));
+        return n->negate ? !in : in;
+    }
+    default: return 0;
+    }
+}
+
+static int first_bytes(const RNode* n, uint8_t* set, int icase) {
+    int nullable = 0;
+    switch (n->kind) {
+    case R_CHAR:
+    case R_ANY:
+    case R_CLASS:
+        for (int c = 0; c < 256; c++) {
+            if (byte_matches(n, c, icase)) set_add(set, c);
+        }
+        break;
+    case R_GROUP: nullable = first_bytes(n->seq[0], set, icase); break;
+    case R_SEQ:
+        nullable = 1;
+        for (int i = 0; i < n->nseq && nullable; i++) nullable = first_bytes(n->seq[i], set, icase);
+        break;
+    case R_ALT:
+        for (int i = 0; i < n->nalts; i++) nullable |= first_bytes(n->alts[i], set, icase);
+        break;
+    case R_BACKREF: memset(set, 0xFF, 32); return 1;
+    default: return 1;
+    }
+    return nullable || n->min == 0;
+}
+
 Rx* rx_compile(const char* pattern, const char* flags) {
     RP r = {pattern, 0, 0, 0};
     int icase = flags && strchr(flags, 'i');
@@ -346,6 +385,7 @@ Rx* rx_compile(const char* pattern, const char* flags) {
     rx->ngroups = r.ngroups;
     rx->icase = icase;
     rx->multiline = multiline;
+    rx->nullable = first_bytes(root, rx->first, icase);
     return rx;
 }
 
@@ -542,6 +582,7 @@ static int final_cont(MS* ms, size_t pos, const Cont* k) {
 int rx_search(const Rx* rx, const char* s, size_t n, size_t from, RxMatch* m) {
     MS ms = {rx, s, n, m, 0};
     for (size_t start = from; start <= n; start++) {
+        if (!rx->nullable && (start == n || !set_has(rx->first, (unsigned char)s[start]))) continue;
         for (int g = 0; g <= RX_MAX_GROUPS; g++) m->start[g] = m->end[g] = (size_t)-1;
         m->start[0] = start;
         Cont fin = {final_cont, NULL, 0, 0, 0, NULL};
