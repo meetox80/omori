@@ -8,6 +8,7 @@
 #include <io/pad.h>
 #include <lv2/systime.h>
 #include <malloc.h>
+#include <ppu-lv2.h>
 #include <sys/mutex.h>
 #include <sys/process.h>
 #include <sys/stat.h>
@@ -90,7 +91,7 @@ void shutdown() {
     if (g_log) std::fclose(g_log);
     ioPadEnd();
     sysUtilUnregisterCallback(0);
-    std::exit(0);
+    lv2syscall1(3, 0);
 }
 
 bool running() { return g_running; }

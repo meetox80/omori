@@ -18,10 +18,10 @@ set(CMAKE_AR ${PS3DEV}/ppu/bin/powerpc64-ps3-elf-ar CACHE FILEPATH "")
 set(CMAKE_RANLIB ${PS3DEV}/ppu/bin/powerpc64-ps3-elf-ranlib CACHE FILEPATH "")
 set(CMAKE_STRIP ${PS3DEV}/ppu/bin/powerpc64-ps3-elf-strip CACHE FILEPATH "")
 
-set(PS3_MACHDEP "-mhard-float -fmodulo-sched -ffunction-sections -fdata-sections")
+set(PS3_MACHDEP "-mhard-float -mminimal-toc -fmodulo-sched -ffunction-sections -fdata-sections")
 set(CMAKE_C_FLAGS_INIT "${PS3_MACHDEP} -isystem ${PSL1GHT}/ppu/include -isystem ${PSL1GHT}/ppu/include/simdmath -isystem ${PS3DEV}/portlibs/ppu/include")
 set(CMAKE_CXX_FLAGS_INIT "${PS3_MACHDEP} -D_GLIBCXX11_USE_C99_STDIO -D_GLIBCXX11_USE_C99_STDLIB -D_GLIBCXX_USE_C99_MATH_TR1 -isystem ${PSL1GHT}/ppu/include -isystem ${PSL1GHT}/ppu/include/simdmath -isystem ${PS3DEV}/portlibs/ppu/include")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "${PS3_MACHDEP} -Wl,--gc-sections -L${PSL1GHT}/ppu/lib -L${PS3DEV}/portlibs/ppu/lib")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "${PS3_MACHDEP} -Wl,--gc-sections -Wl,--no-multi-toc -L${PSL1GHT}/ppu/lib -L${PS3DEV}/portlibs/ppu/lib")
 
 set(CMAKE_FIND_ROOT_PATH ${PS3DEV}/ppu ${PS3DEV}/portlibs/ppu ${PSL1GHT}/ppu)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
