@@ -46,7 +46,7 @@ enum class Env : uint8_t { None, Tex, Fill, Flat, Desat };
 constexpr size_t VTX_BYTES = 768u << 10;
 constexpr int VTX_MAX = (int)(VTX_BYTES / sizeof(Vtx));
 constexpr int CMDBUF_BYTES = 512 << 10;
-constexpr int SURFACE_COUNT = 6;
+constexpr int SURFACE_COUNT = 7;
 constexpr u32 DISPLAY_FLAGS = GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
                               GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) |
                               GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO);
@@ -61,12 +61,15 @@ struct SurfaceInfo {
 
 static const SurfaceInfo SURFACES[SURFACE_COUNT] = {{SCREEN_W, SCREEN_H, 512, 256, GPU_RGBA8, true},  {SCREEN_W, SCREEN_H, 512, 256, GPU_RGBA8, true},
                                                     {HALF_W, HALF_H, 256, 128, GPU_RGBA8, true},       {HALF_W, HALF_H, 256, 128, GPU_RGBA8, true},
-                                                    {HALF_W, HALF_H, 256, 128, GPU_RGBA8, true},       {SCREEN_W, SCREEN_H, 512, 256, GPU_RGB565, false}};
+                                                    {HALF_W, HALF_H, 256, 128, GPU_RGBA8, true},       {SCREEN_W, SCREEN_H, 512, 256, GPU_RGB565, false},
+                                                    {SCREEN_W, SCREEN_H, 512, 256, GPU_RGBA8, true}};
 
 static Texture g_surface_tex[SURFACE_COUNT];
 static C3D_RenderTarget* g_targets[SURFACE_COUNT];
 static bool g_surface_gpu_dirty[SURFACE_COUNT];
 static C3D_RenderTarget* g_top = nullptr;
+static C3D_RenderTarget* g_bottom = nullptr;
+static bool g_bottom_drawn = false;
 
 static DVLB_s* g_dvlb = nullptr;
 static shaderProgram_s g_program;
@@ -74,6 +77,7 @@ static int g_loc_proj = -1;
 static int g_loc_scale = -1;
 static C3D_Mtx g_proj[SURFACE_COUNT];
 static C3D_Mtx g_top_proj;
+static C3D_Mtx g_bottom_proj;
 
 static Vtx* g_vtx = nullptr;
 static int g_vtx_used = 0;
@@ -581,7 +585,8 @@ void init() {
     for (int i = 0; i < SURFACE_COUNT; i++) {
         const SurfaceInfo& si = SURFACES[i];
         Texture& t = g_surface_tex[i];
-        C3D_TexInitVRAM(&t.tex, (u16)si.tw, (u16)si.th, si.fmt);
+        bool bottom = i == (int)Surface::Bottom;
+        if (!C3D_TexInitVRAM(&t.tex, (u16)si.tw, (u16)si.th, si.fmt) && bottom) continue;
         t.w = si.w;
         t.h = si.h;
         t.tw = si.tw;
@@ -591,8 +596,17 @@ void init() {
         t.surface = i;
         g_targets[i] = C3D_RenderTargetCreateFromTex(&t.tex, GPU_TEXFACE_2D, 0, C3D_DEPTHTYPE(GPU_RB_DEPTH24_STENCIL8));
         Mtx_Ortho(&g_proj[i], 0.0f, (float)si.tw, 0.0f, (float)si.th, -1.0f, 1.0f, true);
+        if (bottom) g_bottom = g_targets[i] ? C3D_RenderTargetCreate(240, 320, GPU_RB_RGBA8, C3D_DEPTHTYPE(-1)) : nullptr;
+        if (bottom && !g_bottom) {
+            if (g_targets[i]) C3D_RenderTargetDelete(g_targets[i]);
+            g_targets[i] = nullptr;
+            C3D_TexDelete(&t.tex);
+        }
     }
+    if (g_bottom) C3D_RenderTargetSetOutput(g_bottom, GFX_BOTTOM, GFX_LEFT, DISPLAY_FLAGS);
+    plat::log("gfx: bottom screen %s, %u KB vram free", g_bottom ? "on" : "off", (unsigned)(vramSpaceFree() / 1024));
     Mtx_OrthoTilt(&g_top_proj, 0.0f, 400.0f, 240.0f, 0.0f, -1.0f, 1.0f, true);
+    Mtx_OrthoTilt(&g_bottom_proj, 0.0f, 320.0f, 240.0f, 0.0f, -1.0f, 1.0f, true);
     g_dvlb = DVLB_ParseFile((u32*)sprite_shbin, sprite_shbin_size);
     shaderProgramInit(&g_program);
     shaderProgramSetVsh(&g_program, &g_dvlb->DVLE[0]);
@@ -613,7 +627,9 @@ void init() {
     C3D_EarlyDepthTest(false, GPU_EARLYDEPTH_GREATER, 0);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, g_loc_scale, 1.0f, 1.0f, 1.0f, 1.0f);
     C3D_FrameBegin(0);
-    for (int i = 0; i < SURFACE_COUNT; i++) C3D_RenderTargetClear(g_targets[i], C3D_CLEAR_ALL, 0x000000FF, 0xFF000000u);
+    for (int i = 0; i < SURFACE_COUNT; i++) {
+        if (g_targets[i]) C3D_RenderTargetClear(g_targets[i], C3D_CLEAR_ALL, 0x000000FF, 0xFF000000u);
+    }
     C3D_RenderTargetClear(g_top, C3D_CLEAR_ALL, 0x000000FF, 0);
     C3D_FrameEnd(0);
     for (int i = 0; i < 2; i++) {
@@ -631,10 +647,12 @@ void shutdown() {
     wait_idle();
     collect_garbage();
     for (int i = 0; i < SURFACE_COUNT; i++) {
-        if (g_targets[i]) C3D_RenderTargetDelete(g_targets[i]);
+        if (!g_targets[i]) continue;
+        C3D_RenderTargetDelete(g_targets[i]);
         C3D_TexDelete(&g_surface_tex[i].tex);
     }
     if (g_top) C3D_RenderTargetDelete(g_top);
+    if (g_bottom) C3D_RenderTargetDelete(g_bottom);
     shaderProgramFree(&g_program);
     if (g_dvlb) DVLB_Free(g_dvlb);
     C3D_Fini();
@@ -671,13 +689,13 @@ void begin_frame(uint32_t clear_color) {
     reset_scissor();
 }
 
-static void present_quad() {
-    C3D_FrameDrawOn(g_top);
-    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_loc_proj, &g_top_proj);
+static void present_quad(Surface from, C3D_RenderTarget* to, const C3D_Mtx* proj, float x0, float w) {
+    C3D_FrameDrawOn(to);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_loc_proj, proj);
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     apply_stencil(Stencil::Off);
-    Texture* s = &g_surface_tex[(int)Surface::Screen];
+    Texture* s = &g_surface_tex[(int)from];
     C3D_TexSetFilter(&s->tex, GPU_NEAREST, GPU_NEAREST);
     C3D_TexSetWrap(&s->tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     C3D_TexBind(0, &s->tex);
@@ -687,13 +705,13 @@ static void present_quad() {
     apply_blend(Blend::Copy, false);
     if (g_vtx_used + 6 > VTX_MAX) sync_gpu();
     Vtx* v = g_vtx + g_vtx_used;
-    float w = (float)SCREEN_W, h = (float)SCREEN_H;
-    v[0] = {0, 0, 0, 0, 0xFFFFFFFFu};
-    v[1] = {w, 0, w, 0, 0xFFFFFFFFu};
-    v[2] = {0, h, 0, h, 0xFFFFFFFFu};
-    v[3] = {0, h, 0, h, 0xFFFFFFFFu};
-    v[4] = {w, 0, w, 0, 0xFFFFFFFFu};
-    v[5] = {w, h, w, h, 0xFFFFFFFFu};
+    float h = (float)SCREEN_H, u1 = x0 + w;
+    v[0] = {0, 0, x0, 0, 0xFFFFFFFFu};
+    v[1] = {w, 0, u1, 0, 0xFFFFFFFFu};
+    v[2] = {0, h, x0, h, 0xFFFFFFFFu};
+    v[3] = {0, h, x0, h, 0xFFFFFFFFu};
+    v[4] = {w, 0, u1, 0, 0xFFFFFFFFu};
+    v[5] = {w, h, u1, h, 0xFFFFFFFFu};
     C3D_DrawArrays(GPU_TRIANGLES, g_vtx_used, 6);
     g_vtx_used += 6;
 }
@@ -701,7 +719,9 @@ static void present_quad() {
 void end_frame() {
     if (!g_in_frame) return;
     flush();
-    present_quad();
+    present_quad(Surface::Screen, g_top, &g_top_proj, 0.0f, (float)SCREEN_W);
+    if (g_bottom_drawn) present_quad(Surface::Bottom, g_bottom, &g_bottom_proj, (SCREEN_W - 320) / 2.0f, 320.0f);
+    g_bottom_drawn = false;
     flush_vertices();
     C3D_FrameEnd(GX_CMDLIST_FLUSH);
     g_in_frame = false;
@@ -910,6 +930,13 @@ Texture* grab_screen() {
 
 void set_target(Surface s) {
     flush();
+    if (s == Surface::Bottom) {
+        if (!g_bottom) s = Surface::Screen;
+        else if (!g_bottom_drawn) {
+            C3D_RenderTargetClear(g_targets[(int)s], C3D_CLEAR_ALL, 0x000000FF, 0xFF000000u);
+            g_bottom_drawn = true;
+        }
+    }
     g_target = s;
     bind_target(s);
     if (g_stencil != Stencil::Off) apply_stencil(g_stencil);

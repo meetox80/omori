@@ -128,7 +128,7 @@ The buttons follow the game's own gamepad layout.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/controls/3ds-light.svg">
-    <img src=".github/controls/3ds-dark.svg" width="100%" alt="3DS controls. D-pad: move and choose. Circle Pad: move. A: confirm, talk, next line. B and Start: cancel and open the menu. X: tag, switch the leader. Y: hold to run. L and ZL, R and ZR: page up and down, and the Q and W map shortcuts. Select: tab. The touch screen isn't used, and Home, power and the 3D slider are handled by the 3DS itself.">
+    <img src=".github/controls/3ds-dark.svg" width="100%" alt="3DS controls. D-pad: move and choose. Circle Pad: move. A: confirm, talk, next line. B and Start: cancel and open the menu. X: tag, switch the leader. Y: hold to run. L and ZL, R and ZR: page up and down, and the Q and W map shortcuts. Select: tab. Touch screen: tag, items. Home, power and the 3D slider are handled by the 3DS itself.">
   </picture>
 </p>
 
@@ -244,6 +244,7 @@ The buttons follow the game's own gamepad layout.
   it up sharply to the height of their screens (the Wii U on the TV and the GamePad at once) and the Wii shows it at its own 640x480. The PSP draws the game at 360x270, the
   3DS at 320x240 on the top screen and the PS2 at 320x240 line-doubled on the TV, with the artwork scaled down to
   match. Movies are converted to fit each console.
+- **The 3DS bottom screen shows the party and the items.** Tap a kid to tag them, or tap a snack or toy and then a kid to use it.
 - **Sounds can start a beat late** the first time they play in a session, while they're decoded in the background.
 
 ## Where it's at

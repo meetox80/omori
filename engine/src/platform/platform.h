@@ -45,6 +45,7 @@ bool running();
 void request_exit();
 void poll();
 uint32_t buttons();
+bool touch(int& x, int& y);
 uint64_t frame_count();
 double time_seconds();
 uint64_t time_us();

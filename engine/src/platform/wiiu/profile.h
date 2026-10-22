@@ -17,6 +17,7 @@ constexpr bool WIDE_565 = false;
 constexpr int MOVIE_MAX = 1024;
 constexpr TexLayout TEX_LAYOUT = TexLayout::Linear;
 constexpr bool NINTENDO_BUTTONS = true;
+constexpr bool BOTTOM_SCREEN = false;
 constexpr bool CANVAS_HEAP = false;
 constexpr size_t HEAP_RESERVE = 16u << 20;
 constexpr int AUDIO_RATE = 48000;

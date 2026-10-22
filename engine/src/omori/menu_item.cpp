@@ -191,19 +191,18 @@ void WindowOmoMenuItemList::set_category(const std::string& category) {
     }
 }
 
-bool WindowOmoMenuItemList::includes(const rpg::ItemRef& item) {
+bool pocket_includes(const rpg::ItemRef& item, const std::string& category) {
     if (item.valid() && item.is_item()) {
         if (item_meta_has(item, "HideInMenu")) return false;
         const Value& d = item.data();
-        if (category_ == "consumables") return rpg::is_consumable_item(d);
-        if (category_ == "toys") return rpg::is_toy_item(d);
-        if (category_ == "important") return rpg::is_key_item(d);
+        if (category == "consumables") return rpg::is_consumable_item(d);
+        if (category == "toys") return rpg::is_toy_item(d);
+        if (category == "important") return rpg::is_key_item(d);
     }
     return false;
 }
 
-void WindowOmoMenuItemList::make_item_list() {
-    WindowItemList::make_item_list();
+void sort_pocket_items(std::vector<rpg::ItemRef>& items, const std::string& category) {
     auto list_index = [](const rpg::ItemRef& it) -> double {
         const Value& meta = it.data()["meta"];
         const Value* li = meta.find("ListIndex");
@@ -212,8 +211,8 @@ void WindowOmoMenuItemList::make_item_list() {
         if (li->t == Value::Bool) return li->b ? 1 : 0;
         return js::string_to_number(li->string());
     };
-    std::stable_sort(data_.begin(), data_.end(), [&](const rpg::ItemRef& a, const rpg::ItemRef& b) { return list_index(a) - list_index(b) < 0; });
-    if (category_ == "important") {
+    std::stable_sort(items.begin(), items.end(), [&](const rpg::ItemRef& a, const rpg::ItemRef& b) { return list_index(a) - list_index(b) < 0; });
+    if (category == "important") {
         auto priority = [](const rpg::ItemRef& it) -> double {
             const Value& meta = it.data()["meta"];
             const Value* p = meta.find("ItemPriority");
@@ -221,8 +220,15 @@ void WindowOmoMenuItemList::make_item_list() {
             if (p->is_num()) return std::trunc(p->num());
             return rpg::js_parse_int(data::js_string(*p));
         };
-        std::stable_sort(data_.begin(), data_.end(), [&](const rpg::ItemRef& a, const rpg::ItemRef& b) { return priority(b) - priority(a) < 0; });
+        std::stable_sort(items.begin(), items.end(), [&](const rpg::ItemRef& a, const rpg::ItemRef& b) { return priority(b) - priority(a) < 0; });
     }
+}
+
+bool WindowOmoMenuItemList::includes(const rpg::ItemRef& item) { return pocket_includes(item, category_); }
+
+void WindowOmoMenuItemList::make_item_list() {
+    WindowItemList::make_item_list();
+    sort_pocket_items(data_, category_);
 }
 
 ItemRect WindowOmoMenuItemList::item_rect(int index) {
@@ -454,7 +460,9 @@ void SceneOmoMenuItem::create_item_trash_prompt_window() {
 
 rpg::ItemRef SceneOmoMenuItem::item() { return item_list_window->item(); }
 
-rpg::GameBattler* SceneOmoMenuItem::user() {
+rpg::GameBattler* SceneOmoMenuItem::user() { return pocket_item_user(); }
+
+rpg::GameBattler* pocket_item_user() {
     std::vector<rpg::GameBattler*> members = rpg::game_party().movable_members();
     if (members.empty()) return nullptr;
     rpg::GameBattler* best_actor = members[0];
@@ -470,6 +478,13 @@ rpg::GameBattler* SceneOmoMenuItem::user() {
 }
 
 void SceneOmoMenuItem::play_se_for_item() { rpg::audio_manager::play_system_sound(22); }
+
+void play_item_heal_se(const rpg::ItemRef& it) {
+    int animation_id = it.valid() ? it.data()["animationId"].as_int() : 0;
+    if (animation_id == 212) play_se("BA_Heart_Heal", 90, 100, 0);
+    else if (animation_id == 213) play_se("BA_heal_juice", 90, 100, 0);
+    else if (animation_id == 114) play_se("BA_Heart_Heal", 90, 100, 0);
+}
 
 void SceneOmoMenuItem::on_item_category_ok() {
     clear_queue();
@@ -672,10 +687,7 @@ void SceneOmoMenuItem::base_on_status_window_ok() {
     rpg::ItemRef it = item();
     if (can_use()) {
         use_item();
-        int animation_id = it.valid() ? it.data()["animationId"].as_int() : 0;
-        if (animation_id == 212) play_se("BA_Heart_Heal", 90, 100, 0);
-        else if (animation_id == 213) play_se("BA_heal_juice", 90, 100, 0);
-        else if (animation_id == 114) play_se("BA_Heart_Heal", 90, 100, 0);
+        play_item_heal_se(it);
         item_list_window->refresh();
         double item_count = rpg::game_party().num_items(it);
         if (item_count <= 0) {

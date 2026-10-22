@@ -8,6 +8,7 @@
 #include <SDL.h>
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -24,7 +25,15 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+namespace gfx {
+const uint32_t* bottom_framebuffer();
+}
+
 namespace plat {
+
+constexpr int BOTTOM_W = 320;
+constexpr int BOTTOM_X = (gfx::SCREEN_W - BOTTOM_W) / 2;
+constexpr int VIEW_H = profile::BOTTOM_SCREEN ? gfx::SCREEN_H * 2 : gfx::SCREEN_H;
 
 static Options g_opt;
 static bool g_running = true;
@@ -33,6 +42,9 @@ static uint64_t g_frame = 0;
 static SDL_Window* g_window = nullptr;
 static SDL_Renderer* g_renderer = nullptr;
 static SDL_Texture* g_screen = nullptr;
+static SDL_Texture* g_bottom = nullptr;
+static bool g_touching = false;
+static int g_touch_x = 0, g_touch_y = 0;
 static SDL_GameController* g_pad = nullptr;
 static uint64_t g_next_tick = 0;
 
@@ -53,11 +65,13 @@ bool init(int argc, char** argv) {
     }
     if (!g_opt.headless) {
         g_window = SDL_CreateWindow("omori", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, gfx::SCREEN_W * g_opt.scale,
-                                    gfx::SCREEN_H * g_opt.scale, SDL_WINDOW_RESIZABLE);
+                                    VIEW_H * g_opt.scale, SDL_WINDOW_RESIZABLE);
         g_renderer = SDL_CreateRenderer(g_window, -1, SDL_RENDERER_ACCELERATED | (g_opt.fast ? 0 : SDL_RENDERER_PRESENTVSYNC));
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
-        SDL_RenderSetLogicalSize(g_renderer, gfx::SCREEN_W, gfx::SCREEN_H);
+        SDL_RenderSetLogicalSize(g_renderer, gfx::SCREEN_W, VIEW_H);
         g_screen = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, gfx::SCREEN_W, gfx::SCREEN_H);
+        if (profile::BOTTOM_SCREEN)
+            g_bottom = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, BOTTOM_W, gfx::SCREEN_H);
         for (int i = 0; i < SDL_NumJoysticks(); i++) {
             if (SDL_IsGameController(i)) {
                 g_pad = SDL_GameControllerOpen(i);
@@ -76,6 +90,7 @@ void shutdown() {
     gfx::shutdown();
     if (g_pad) SDL_GameControllerClose(g_pad);
     if (g_screen) SDL_DestroyTexture(g_screen);
+    if (g_bottom) SDL_DestroyTexture(g_bottom);
     if (g_renderer) SDL_DestroyRenderer(g_renderer);
     if (g_window) SDL_DestroyWindow(g_window);
     SDL_Quit();
@@ -126,9 +141,31 @@ void poll() {
     }
     b |= testing::buttons(g_frame);
     g_buttons = b;
+    g_touching = false;
+    if (profile::BOTTOM_SCREEN && g_renderer) {
+        int wx = 0, wy = 0;
+        if (SDL_GetMouseState(&wx, &wy) & SDL_BUTTON(SDL_BUTTON_LEFT)) {
+            float lx = 0, ly = 0;
+            SDL_RenderWindowToLogical(g_renderer, wx, wy, &lx, &ly);
+            int tx = (int)lx - BOTTOM_X, ty = (int)ly - gfx::SCREEN_H;
+            if (tx >= 0 && tx < BOTTOM_W && ty >= 0 && ty < gfx::SCREEN_H) {
+                g_touch_x = tx;
+                g_touch_y = ty;
+                g_touching = true;
+            }
+        }
+    }
+    if (testing::touch(g_frame, g_touch_x, g_touch_y)) g_touching = true;
 }
 
 uint32_t buttons() { return g_buttons; }
+
+bool touch(int& x, int& y) {
+    if (!g_touching) return false;
+    x = g_touch_x;
+    y = g_touch_y;
+    return true;
+}
 uint64_t frame_count() { return g_frame; }
 
 double time_seconds() { return (double)SDL_GetPerformanceCounter() / (double)SDL_GetPerformanceFrequency(); }
@@ -147,9 +184,16 @@ void set_low_memory_handler(void (*)()) {}
 static void write_shot(uint64_t frame) {
     std::string path = testing::shot_path(g_opt, frame, "png");
     const char* name = path.c_str();
-    std::vector<uint32_t> px(gfx::framebuffer(), gfx::framebuffer() + gfx::SCREEN_W * gfx::SCREEN_H);
+    std::vector<uint32_t> px((size_t)gfx::SCREEN_W * VIEW_H, 0xFF000000u);
+    std::copy(gfx::framebuffer(), gfx::framebuffer() + gfx::SCREEN_W * gfx::SCREEN_H, px.begin());
+    if (profile::BOTTOM_SCREEN) {
+        const uint32_t* bottom = gfx::bottom_framebuffer();
+        for (int y = 0; y < gfx::SCREEN_H; y++)
+            std::copy(bottom + (size_t)y * gfx::SCREEN_W + BOTTOM_X, bottom + (size_t)y * gfx::SCREEN_W + BOTTOM_X + BOTTOM_W,
+                      px.begin() + (size_t)(gfx::SCREEN_H + y) * gfx::SCREEN_W + BOTTOM_X);
+    }
     for (auto& p : px) p |= 0xFF000000u;
-    stbi_write_png(name, gfx::SCREEN_W, gfx::SCREEN_H, 4, px.data(), gfx::SCREEN_W * 4);
+    stbi_write_png(name, gfx::SCREEN_W, VIEW_H, 4, px.data(), gfx::SCREEN_W * 4);
     std::printf("shot %s\n", name);
     std::fflush(stdout);
 }
@@ -162,7 +206,13 @@ void frame_end() {
     if (g_renderer) {
         SDL_UpdateTexture(g_screen, nullptr, gfx::framebuffer(), gfx::SCREEN_W * 4);
         SDL_RenderClear(g_renderer);
-        SDL_RenderCopy(g_renderer, g_screen, nullptr, nullptr);
+        SDL_Rect top{0, 0, gfx::SCREEN_W, gfx::SCREEN_H};
+        SDL_RenderCopy(g_renderer, g_screen, nullptr, &top);
+        if (g_bottom) {
+            SDL_UpdateTexture(g_bottom, nullptr, gfx::bottom_framebuffer() + BOTTOM_X, gfx::SCREEN_W * 4);
+            SDL_Rect bottom{BOTTOM_X, gfx::SCREEN_H, BOTTOM_W, gfx::SCREEN_H};
+            SDL_RenderCopy(g_renderer, g_bottom, nullptr, &bottom);
+        }
         SDL_RenderPresent(g_renderer);
     }
     if (!g_opt.fast) {

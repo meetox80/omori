@@ -10,6 +10,7 @@
 #include "../core/audio.h"
 #include "../core/fs.h"
 #include "../core/image.h"
+#include "../omori/bottom_screen.h"
 #include "../omori/video.h"
 #include "../platform/audio_out.h"
 #include "../platform/common/testing.h"
@@ -381,6 +382,7 @@ static void render_scene() {
         gfx::reset_scissor();
     }
     ui::render_movie_overlay();
+    ui::bottom::render();
     if (plat::options().perf) {
         double r = plat::time_seconds() - t0;
         perf_add(g_perf.render_sum, g_perf.render_max, r);
@@ -443,6 +445,7 @@ void run(SceneFactory first) {
                 change_scene();
             }
             update_scene();
+            ui::bottom::update();
             if (plat::debug_reset() && game_objects_exist()) {
                 rpg::GameScreen& screen = game_screen();
                 screen.clear_pictures();

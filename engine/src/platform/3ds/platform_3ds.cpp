@@ -54,6 +54,8 @@ namespace plat {
 static Options g_opt;
 static volatile bool g_running = true;
 static uint32_t g_buttons = 0;
+static bool g_touching = false;
+static int g_touch_x = 0, g_touch_y = 0;
 static uint64_t g_frame = 0;
 static FILE* g_log = nullptr;
 static volatile bool g_resumed = false;
@@ -153,9 +155,25 @@ void poll() {
     if (k & KEY_SELECT) b |= BTN_SELECT;
     b |= testing::buttons(g_frame);
     g_buttons = b;
+    g_touching = false;
+    if (k & KEY_TOUCH) {
+        touchPosition t;
+        hidTouchRead(&t);
+        g_touch_x = t.px;
+        g_touch_y = t.py;
+        g_touching = true;
+    }
+    if (testing::touch(g_frame, g_touch_x, g_touch_y)) g_touching = true;
 }
 
 uint32_t buttons() { return g_buttons; }
+
+bool touch(int& x, int& y) {
+    if (!g_touching) return false;
+    x = g_touch_x;
+    y = g_touch_y;
+    return true;
+}
 uint64_t frame_count() { return g_frame; }
 
 double time_seconds() { return (double)svcGetSystemTick() / (double)SYSCLOCK_ARM11; }

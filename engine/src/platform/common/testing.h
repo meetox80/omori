@@ -11,6 +11,7 @@ void parse_args(plat::Options& opt, const std::vector<std::string>& args);
 std::vector<std::string> read_args_file(const std::string& path);
 void setup(const plat::Options& opt);
 uint32_t buttons(uint64_t frame);
+bool touch(uint64_t frame, int& x, int& y);
 bool exit_due(uint64_t frame);
 bool warp_due(uint64_t frame, int& map, int& x, int& y, int& d);
 bool shot_due(uint64_t frame);

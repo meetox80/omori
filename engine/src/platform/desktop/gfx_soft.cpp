@@ -26,7 +26,7 @@ struct Plane {
     Texture tex;
 };
 
-static Plane g_planes[6];
+static Plane g_planes[7];
 static Plane* g_cur = nullptr;
 static Surface g_target = Surface::Screen;
 static int g_sx0 = 0, g_sy0 = 0, g_sx1 = SCREEN_W, g_sy1 = SCREEN_H;
@@ -142,6 +142,7 @@ void init() {
     init_plane(Surface::Half1, HALF_W, HALF_H, half, false);
     init_plane(Surface::Half2, HALF_W, HALF_H, half, false);
     init_plane(Surface::Wide, SCREEN_W, SCREEN_H, wide, profile::WIDE_565);
+    init_plane(Surface::Bottom, SCREEN_W, SCREEN_H, SCREEN_W, false);
     g_cur = &g_planes[0];
     g_target = Surface::Screen;
 }
@@ -178,6 +179,8 @@ bool reclaim_memory() { return true; }
 
 const uint32_t* framebuffer() { return g_planes[0].px.data(); }
 
+const uint32_t* bottom_framebuffer() { return g_planes[(int)Surface::Bottom].px.data(); }
+
 bool capture_row(int y, int x, int w, uint32_t* out) {
     const Plane& p = g_planes[0];
     if (y < 0 || y >= SCREEN_H || x < 0 || x + w > SCREEN_W) return false;
@@ -206,6 +209,11 @@ void reset_scissor() {
 }
 
 void set_target(Surface s) {
+    if (s == Surface::Bottom && g_target != Surface::Bottom) {
+        Plane& b = g_planes[(int)Surface::Bottom];
+        std::fill(b.px.begin(), b.px.end(), 0xFF000000u);
+        std::fill(b.st.begin(), b.st.end(), 0);
+    }
     g_target = s;
     g_cur = &g_planes[(int)s];
     reset_scissor();

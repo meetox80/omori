@@ -959,7 +959,9 @@ void SceneOmoMenuBase::check_common_event() {
     }
 }
 
-void SceneOmoMenuBase::check_gameover() {
+void SceneOmoMenuBase::check_gameover() { goto_gameover_if_dead(); }
+
+void goto_gameover_if_dead() {
     rpg::GameActor* omori = rpg::game_actors().actor(1);
     bool dead = omori->is_dead() || omori->hp() <= 0;
     if (!rpg::party_in_battle() && dead && omori->index() > -1) {

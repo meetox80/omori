@@ -11,7 +11,7 @@ constexpr int SCREEN_H = profile::SCREEN_H;
 
 enum class Format : uint8_t { RGBA8888 = 0, RGBA4444 = 1, RGB565 = 2, RGBA5551 = 3, T8 = 4 };
 enum class Blend : uint8_t { Normal = 0, Add = 1, Multiply = 2, Screen = 3, Subtract = 4, Copy = 5, MulSrc = 6, MulAdd = 7, Max = 8, Min = 9, MulSub = 10 };
-enum class Surface : uint8_t { Screen = 0, Grab = 1, Half0 = 2, Half1 = 3, Half2 = 4, Wide = 5 };
+enum class Surface : uint8_t { Screen = 0, Grab = 1, Half0 = 2, Half1 = 3, Half2 = 4, Wide = 5, Bottom = 6 };
 enum class Stencil : uint8_t { Off = 0, Write = 1, Test = 2 };
 
 constexpr int HALF_W = profile::HALF_W;

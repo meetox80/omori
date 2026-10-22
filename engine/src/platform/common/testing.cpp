@@ -27,6 +27,13 @@ static std::vector<std::pair<uint64_t, int>> g_battles;
 static std::set<uint64_t> g_resets;
 static std::vector<std::pair<uint64_t, std::string>> g_evals;
 
+struct Touch {
+    uint64_t frame;
+    int x, y, duration;
+};
+
+static std::vector<Touch> g_touches;
+
 static uint32_t parse_buttons(const std::string& s) {
     uint32_t m = 0;
     std::stringstream ss(s);
@@ -117,6 +124,12 @@ static void load_script(const std::string& path) {
             std::string src = line.substr(at + 4);
             while (!src.empty() && (src.back() == '\n' || src.back() == '\r')) src.pop_back();
             g_evals.push_back({cursor, src});
+        } else if (a == "touch") {
+            Touch t{cursor, std::atoi(b.c_str()), 0, 2};
+            ss >> t.y >> t.duration;
+            if (t.duration <= 0) t.duration = 2;
+            g_touches.push_back(t);
+            cursor += t.duration + 6;
         } else if (a == "press" || a == "hold") {
             ss >> dur;
             if (dur <= 0) dur = (a == "press") ? 2 : 30;
@@ -150,6 +163,17 @@ uint32_t buttons(uint64_t frame) {
         if (frame >= ev.frame && frame < ev.frame + (uint64_t)ev.duration) b |= ev.mask;
     }
     return b;
+}
+
+bool touch(uint64_t frame, int& x, int& y) {
+    for (const Touch& t : g_touches) {
+        if (frame >= t.frame && frame < t.frame + (uint64_t)t.duration) {
+            x = t.x;
+            y = t.y;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool exit_due(uint64_t frame) { return frame > g_exit_at; }
