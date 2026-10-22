@@ -17,14 +17,23 @@ int main(int argc, char** argv) {
     if (!plat::init(argc, argv)) return 1;
     if (plat::options().input_script.empty()) rng::seed(((uint64_t)std::time(nullptr) << 20) ^ plat::time_us());
     audio::init();
-    plat::set_low_memory_handler([] {
+    static void (*const release_caches)() = [] {
         images::release_memory();
         audio::release_memory();
         g2d::release_decoded_sources();
         g2d::release_font_atlases();
-    });
+    };
+    plat::set_low_memory_handler(release_caches);
+    audio::set_low_memory_handler(release_caches);
 #if defined(PSP)
-    images::set_budget(16u << 20);
+    if (plat::heap_limit() < (32u << 20)) {
+        images::set_budget(4u << 20);
+        images::set_compact(true);
+        audio::set_se_budget(384u << 10);
+        g2d::set_font_atlas_budget(1u << 20);
+    } else {
+        images::set_budget(16u << 20);
+    }
 #elif defined(__vita__)
     images::set_budget(96u << 20);
 #elif defined(__wii__)
@@ -40,11 +49,14 @@ int main(int argc, char** argv) {
 #else
     images::set_budget(32u << 20);
 #endif
+    size_t heap_before_data = plat::heap_used();
     if (!data::load()) {
         plat::log("data missing");
         plat::shutdown();
         return 1;
     }
+    plat::log("game data: %u KB, heap used %u of %u KB", (unsigned)((plat::heap_used() - heap_before_data) / 1024), (unsigned)(plat::heap_used() / 1024),
+              (unsigned)(plat::heap_limit() / 1024));
     rpg::install_bindings();
     rpg::scene_manager::run(ui::boot_scene());
     if (plat::options().dump_audio > 0) audio::write_dump(fs::save_path("audio_dump.raw"));

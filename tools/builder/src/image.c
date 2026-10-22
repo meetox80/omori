@@ -539,11 +539,21 @@ int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
         y += ph;
     }
     img_free(straight);
+    int opaque = 1, hard = 1;
+    size_t visible = 0, soft = 0;
+    for (size_t i = 0, n = (size_t)pm->w * pm->h; i < n; i++) {
+        uint8_t a = pm->px[i * 4 + 3];
+        if (a != 255) opaque = 0;
+        if (a != 0 && a != 255) hard = 0;
+        if (a >= 8) visible++;
+        if (a >= 8 && a <= 247) soft++;
+    }
+    int edged = !opaque && !hard && soft * 100 <= visible * 15;
     size_t start = out->len;
     buf_put(out, "TTEX", 4);
     buf_u8(out, (uint8_t)(g_target->layout == TEX_PICA ? 2 : 1));
     buf_u8(out, 0);
-    buf_u8(out, (uint8_t)(g_target->layout == TEX_LINEAR ? 0 : 1));
+    buf_u8(out, (uint8_t)((g_target->layout == TEX_LINEAR ? 0 : 1) | (opaque ? 4 : 0) | (hard ? 8 : 0) | (edged ? 16 : 0)));
     buf_u8(out, 0);
     buf_u16(out, (uint16_t)pm->w);
     buf_u16(out, (uint16_t)pm->h);
@@ -570,6 +580,48 @@ int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
         buf_free(&chunks[k].comp);
     }
     free(chunks);
+    return 1;
+}
+
+int tex_encode_font(const Image* pm, Buf* out) {
+    size_t n = (size_t)pm->w * pm->h, raw_len = n * 2;
+    uint8_t* raw = xmalloc(raw_len ? raw_len : 1);
+    for (size_t i = 0; i < n; i++) {
+        raw[i * 2] = pm->px[i * 4];
+        raw[i * 2 + 1] = pm->px[i * 4 + 3];
+    }
+    mz_ulong clen = mz_compressBound((mz_ulong)raw_len);
+    Buf comp = {0};
+    buf_reserve(&comp, clen);
+    int ok = mz_compress2(comp.data, &clen, raw, (mz_ulong)raw_len, 9) == MZ_OK;
+    free(raw);
+    if (!ok) {
+        buf_free(&comp);
+        return 0;
+    }
+    size_t start = out->len;
+    buf_put(out, "TTEX", 4);
+    buf_u8(out, 1);
+    buf_u8(out, TEX_FORMAT_FONT);
+    buf_u8(out, 0);
+    buf_u8(out, 0);
+    buf_u16(out, (uint16_t)pm->w);
+    buf_u16(out, (uint16_t)pm->h);
+    buf_u16(out, (uint16_t)pm->w);
+    buf_u16(out, (uint16_t)pm->h);
+    buf_u16(out, 1);
+    buf_u16(out, 0);
+    buf_u16(out, 0);
+    buf_u16(out, 0);
+    buf_u16(out, (uint16_t)pm->w);
+    buf_u16(out, (uint16_t)pm->h);
+    buf_u16(out, (uint16_t)pm->w);
+    buf_u16(out, (uint16_t)pm->h);
+    buf_u32(out, (uint32_t)(out->len - start) + 12);
+    buf_u32(out, (uint32_t)clen);
+    buf_u32(out, (uint32_t)raw_len);
+    buf_put(out, comp.data, clen);
+    buf_free(&comp);
     return 1;
 }
 

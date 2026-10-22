@@ -316,6 +316,38 @@ static void process_objects(Node* arr, const char* kind) {
     }
 }
 
+static const char* NOTE_TAGS[][3] = {{"skills", "<ChainSkill:(.+),(.+)>", "i"},
+                                     {"enemies", "<Position Offset [XY]:[ ]*-?\\d+>", "i"},
+                                     {"items", "<Is Toy>", ""},
+                                     {"actors", NULL, NULL},
+                                     {"classes", NULL, NULL},
+                                     {"weapons", NULL, NULL},
+                                     {"armors", NULL, NULL},
+                                     {"states", NULL, NULL},
+                                     {NULL, NULL, NULL}};
+
+static void trim_notes(Node* root) {
+    for (int t = 0; NOTE_TAGS[t][0]; t++) {
+        Node* arr = node_get(root, NOTE_TAGS[t][0]);
+        Rx* rx = NOTE_TAGS[t][1] ? rx_compile(NOTE_TAGS[t][1], NOTE_TAGS[t][2]) : NULL;
+        for (size_t i = 0; arr && i < arr->count; i++) {
+            Node* note = node_get(arr->items[i], "note");
+            if (!note || note->type != N_STR || !note->len) continue;
+            Buf kept = {0};
+            RxMatch m;
+            size_t from = 0;
+            while (rx && rx_search(rx, note->str, note->len, from, &m)) {
+                if (kept.len) buf_u8(&kept, '\n');
+                buf_put(&kept, note->str + m.start[0], m.end[0] - m.start[0]);
+                from = m.end[0] > m.start[0] ? m.end[0] : m.end[0] + 1;
+            }
+            node_set(arr->items[i], "note", node_strn(kept.len ? (const char*)kept.data : "", kept.len));
+            buf_free(&kept);
+        }
+        if (rx) rx_free(rx);
+    }
+}
+
 static Node* text_colors(Game* g) {
     Node* arr = node_arr();
     Buf b = {0};
@@ -419,6 +451,7 @@ Node* db_build(Game* g, Pack* pack, Node** lang_out) {
             }
         }
     }
+    trim_notes(root);
     Node* quests = load_yaml(g, "data/Quests.yaml");
     node_set(root, "quests", quests ? quests : node_null());
     node_set(root, "textColors", text_colors(g));

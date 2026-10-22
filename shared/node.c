@@ -422,6 +422,9 @@ typedef struct {
     Intern intern;
     HashMemo memo;
     Seen seen;
+    Node** shells;
+    size_t shell_count;
+    size_t shell_cap;
 } VbinCtx;
 
 static uint64_t mix64(uint64_t h, uint64_t v) {
@@ -563,6 +566,125 @@ static void vbin_scan(VbinCtx* cx, const Node* n) {
     for (size_t i = 0; i < n->count; i++) vbin_scan(cx, n->items[i]);
 }
 
+static int same_keys(const Node* a, const Node* b) {
+    if (a->type != N_OBJ || b->type != N_OBJ || a->count != b->count) return 0;
+    for (size_t i = 0; i < a->count; i++) {
+        if (strcmp(a->keys[i], b->keys[i]) != 0) return 0;
+    }
+    return 1;
+}
+
+static int cmp_u64(const void* a, const void* b) {
+    uint64_t x = *(const uint64_t*)a, y = *(const uint64_t*)b;
+    return x < y ? -1 : x > y;
+}
+
+static int vbin_shared(VbinCtx* cx, const Node* n) {
+    if ((n->type != N_ARR && n->type != N_OBJ) || !n->count) return 0;
+    SeenEntry* e = seen_find(&cx->seen, n, node_hash(&cx->memo, n));
+    return e && e->count > 1;
+}
+
+static Node* vbin_template(VbinCtx* cx, const Node* arr) {
+    enum { SHAPES = 8 };
+    const Node* shape[SHAPES];
+    size_t uses[SHAPES], shapes = 0;
+    for (size_t i = 0; i < arr->count; i++) {
+        const Node* o = arr->items[i];
+        if (o->type != N_OBJ || !o->count) continue;
+        size_t k = 0;
+        while (k < shapes && !same_keys(o, shape[k])) k++;
+        if (k == shapes) {
+            if (shapes == SHAPES) continue;
+            shape[shapes] = o;
+            uses[shapes++] = 0;
+        }
+        uses[k]++;
+    }
+    size_t best = 0;
+    for (size_t k = 1; k < shapes; k++) {
+        if (uses[k] > uses[best]) best = k;
+    }
+    if (!shapes || uses[best] < 4) return NULL;
+    const Node* like = shape[best];
+    size_t matches = uses[best];
+    const Node** rows = xmalloc(sizeof(Node*) * matches);
+    size_t r = 0;
+    for (size_t i = 0; i < arr->count; i++) {
+        if (same_keys(arr->items[i], like)) rows[r++] = arr->items[i];
+    }
+    uint64_t* hashes = xmalloc(sizeof(uint64_t) * matches);
+    uint64_t* sorted = xmalloc(sizeof(uint64_t) * matches);
+    Node* t = node_obj();
+    t->count = t->cap = like->count;
+    t->keys = xmalloc(sizeof(char*) * like->count);
+    t->items = xmalloc(sizeof(Node*) * like->count);
+    size_t overrides = 0;
+    for (size_t k = 0; k < like->count; k++) {
+        for (size_t j = 0; j < matches; j++) hashes[j] = sorted[j] = node_hash(&cx->memo, rows[j]->items[k]);
+        qsort(sorted, matches, sizeof(uint64_t), cmp_u64);
+        uint64_t mode = sorted[0];
+        size_t run = 0, best_run = 0;
+        for (size_t j = 0; j < matches; j++) {
+            run = j && sorted[j] == sorted[j - 1] ? run + 1 : 1;
+            if (run > best_run) {
+                best_run = run;
+                mode = sorted[j];
+            }
+        }
+        size_t pick = 0;
+        while (hashes[pick] != mode) pick++;
+        t->keys[k] = like->keys[k];
+        t->items[k] = rows[pick]->items[k];
+        for (size_t j = 0; j < matches; j++) {
+            if (!node_equal(rows[j]->items[k], t->items[k])) overrides++;
+        }
+    }
+    free(rows);
+    free(hashes);
+    free(sorted);
+    if (overrides * 4 > matches * like->count * 3) {
+        free(t->keys);
+        free(t->items);
+        free(t);
+        return NULL;
+    }
+    if (cx->shell_count == cx->shell_cap) {
+        cx->shell_cap = cx->shell_cap ? cx->shell_cap * 2 : 64;
+        cx->shells = xrealloc(cx->shells, sizeof(Node*) * cx->shell_cap);
+    }
+    cx->shells[cx->shell_count++] = t;
+    return t;
+}
+
+static void vbin_value(VbinCtx* cx, const Node* n, Buf* out);
+
+static int vbin_templated(VbinCtx* cx, const Node* n, Buf* out) {
+    Node* t = vbin_template(cx, n);
+    if (!t) return 0;
+    Intern* in = &cx->intern;
+    buf_u8(out, 12);
+    vbin_value(cx, t, out);
+    varint(out, n->count);
+    for (size_t i = 0; i < n->count; i++) {
+        const Node* o = n->items[i];
+        if (!same_keys(o, t) || vbin_shared(cx, o)) {
+            vbin_value(cx, o, out);
+            continue;
+        }
+        size_t own = 0;
+        for (size_t k = 0; k < t->count; k++) own += !node_equal(o->items[k], t->items[k]);
+        buf_u8(out, 13);
+        varint(out, own);
+        for (size_t k = 0; k < t->count; k++) {
+            if (node_equal(o->items[k], t->items[k])) continue;
+            varint(out, intern(in, o->keys[k], strlen(o->keys[k])));
+            vbin_value(cx, o->items[k], out);
+        }
+    }
+    return 1;
+}
+
 static void vbin_value(VbinCtx* cx, const Node* n, Buf* out) {
     Intern* in = &cx->intern;
     switch (n->type) {
@@ -605,6 +727,7 @@ static void vbin_value(VbinCtx* cx, const Node* n, Buf* out) {
             }
         }
         int shared = e && e->count > 1;
+        if (n->type == N_ARR && !shared && n->count >= 4 && vbin_templated(cx, n, out)) break;
         if (n->type == N_ARR) {
             buf_u8(out, shared ? 10 : 6);
             varint(out, n->count);
@@ -637,6 +760,12 @@ void vbin_dump(const Node* root, Buf* out) {
     free(cx.memo.keys);
     free(cx.memo.hashes);
     free(cx.seen.slots);
+    for (size_t i = 0; i < cx.shell_count; i++) {
+        free(cx.shells[i]->keys);
+        free(cx.shells[i]->items);
+        free(cx.shells[i]);
+    }
+    free(cx.shells);
     Buf table = {0};
     varint(&table, in.count);
     for (size_t i = 0; i < in.count; i++) {

@@ -139,10 +139,10 @@ void WindowOmoMenuOptionsGeneral::create_option_cursors() {
 void WindowOmoMenuOptionsGeneral::make_options_list() {
     const Value& text = plugin_data("optionsMenu", "general");
     options_list.clear();
-    for (const Member* m = text.begin_members(); m != text.end_members(); ++m) {
-        std::string name = m->key;
+    for (const Member& m : text.members()) {
+        std::string name = m.key;
         if (!general_option_supported(name)) continue;
-        const Value& d = m->v;
+        const Value& d = m.v;
         Option option;
         option.name = name;
         option.header = data::js_string(d["text"]) + ":";
@@ -276,9 +276,9 @@ void WindowOmoMenuOptionsAudio::create_volume_bars() {
 void WindowOmoMenuOptionsAudio::make_options_list() {
     const Value& text = plugin_data("optionsMenu", "audio");
     options_list.clear();
-    for (const Member* m = text.begin_members(); m != text.end_members(); ++m) {
-        std::string name = m->key;
-        const Value& d = m->v;
+    for (const Member& m : text.members()) {
+        std::string name = m.key;
+        const Value& d = m.v;
         Option option;
         option.header = data::js_string(d["text"]) + ":";
         option.config = name;

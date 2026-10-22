@@ -284,6 +284,7 @@ static bool g_bgm_held = false;
 static std::unordered_map<std::string, std::shared_ptr<Pcm>> g_se_cache;
 static std::vector<std::string> g_se_order;
 static size_t g_se_bytes = 0;
+static size_t g_se_budget = 2u << 20;
 static bool g_inited = false;
 
 static std::string rel_for(const char* folder, const std::string& name) {
@@ -447,7 +448,7 @@ static void cache_se(const std::string& name, const std::shared_ptr<Pcm>& pcm) {
     g_se_cache[name] = pcm;
     g_se_order.push_back(name);
     g_se_bytes += pcm->data.size() * 2;
-    while (g_se_bytes > (2u << 20) && g_se_order.size() > 1) {
+    while (g_se_bytes > g_se_budget && g_se_order.size() > 1) {
         std::string victim = g_se_order.front();
         g_se_order.erase(g_se_order.begin());
         auto v = g_se_cache.find(victim);
@@ -755,12 +756,15 @@ struct LoadJob {
     std::string se_name;
     bool loop = false;
     double pos = 0;
+    bool retried = false;
 };
 
 struct LoadResult {
     uint32_t token = 0;
     Voice* voice = nullptr;
     std::string se_name;
+    LoadJob retry;
+    bool failed = false;
     std::unique_ptr<Stream> stream;
     std::shared_ptr<Pcm> pcm;
     int64_t start_frame = 0;
@@ -772,6 +776,7 @@ static plat::Mutex* g_load_mutex = nullptr;
 static std::vector<LoadJob> g_load_jobs;
 static std::vector<LoadResult> g_load_results;
 static uint32_t g_load_token = 0;
+static void (*g_relieve)() = nullptr;
 static std::unordered_map<std::string, std::vector<Track>> g_se_waiting;
 
 constexpr int64_t SE_DECODE_BYTES = 48 * 1024;
@@ -824,7 +829,8 @@ static void loader() {
             r.pcm.reset();
             r.pre.clear();
             r.pre_len = 0;
-            plat::log("audio %s skipped: out of memory", job.rel.c_str());
+            r.retry = job;
+            r.failed = true;
         }
         plat::mutex_lock(g_load_mutex);
         g_load_results.push_back(std::move(r));
@@ -1392,6 +1398,15 @@ static void collect_loads() {
     ready.swap(g_load_results);
     plat::mutex_unlock(g_load_mutex);
     for (LoadResult& r : ready) {
+        if (r.failed) {
+            if (!r.retry.retried && g_relieve) {
+                g_relieve();
+                r.retry.retried = true;
+                enqueue(std::move(r.retry));
+                continue;
+            }
+            plat::log("audio %s skipped: out of memory", r.retry.rel.c_str());
+        }
         if (r.voice) {
             install(r);
             continue;
@@ -1416,6 +1431,9 @@ static void collect_loads() {
         }
     }
 }
+
+void set_se_budget(size_t bytes) { g_se_budget = bytes; }
+void set_low_memory_handler(void (*fn)()) { g_relieve = fn; }
 
 void release_memory() {
     g_se_cache.clear();

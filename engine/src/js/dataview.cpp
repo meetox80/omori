@@ -53,7 +53,7 @@ bool view_set(Vm&, Obj* self, uint32_t key, const Val& v) {
 
 void view_keys(Obj* self, std::vector<uint32_t>& keys) {
     ViewNode* n = static_cast<ViewNode*>(self->ptr);
-    for (const Member* m = n->v->begin_members(); m != n->v->end_members(); ++m) keys.push_back(atom(m->key));
+    for (const Member& m : n->v->members()) keys.push_back(atom(m.key));
     for (auto& p : n->overlay.props) keys.push_back(p.key);
 }
 
@@ -114,7 +114,7 @@ Val value_to_js(const ::Value& v) {
     }
     if (v.t == ::Value::Obj) {
         Val o = make_object();
-        for (const Member* m = v.begin_members(); m != v.end_members(); ++m) o.o->set(atom(m->key), value_to_js(m->v));
+        for (const Member& m : v.members()) o.o->set(atom(m.key), value_to_js(m.v));
         return o;
     }
     if (v.t == ::Value::Bytes) return Val();

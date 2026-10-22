@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <list>
 #include <unordered_map>
@@ -34,6 +35,7 @@ static size_t g_used = 0;
 static size_t g_budget = 20u << 20;
 static uint64_t g_tick = 0;
 static std::atomic<bool> g_urgent{false};
+static bool g_compact = false;
 
 constexpr uint32_t INFLATE_SLICE = 16384;
 constexpr int INFLATE_PACE_MS = 4;
@@ -57,6 +59,7 @@ struct Decoded {
     std::vector<uint32_t> palette;
     std::string source;
     bool lazy = false;
+    bool packed = false;
     bool ok = false;
     bool oom = false;
 };
@@ -69,13 +72,79 @@ static void free_decoded(Decoded& d) {
     d.chunks.clear();
 }
 
-static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* dst, uint32_t rsize, bool paced) {
+struct Pack {
+    int fmt = -1;
+    int stride = 0;
+    bool swizzled = false;
+};
+
+static const uint8_t BAYER[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+
+static inline int dither(int v, int max, int d) { return (v * max * 32 + (2 * d + 1) * 255) / (255 * 32); }
+
+static inline uint16_t pack_texel(const uint8_t* s, int fmt, int d) {
+    int r = s[0], g = s[1], b = s[2], a = s[3];
+    if (fmt == (int)gfx::Format::RGB565) return (uint16_t)(dither(r, 31, d) | (dither(g, 63, d) << 5) | (dither(b, 31, d) << 11));
+    if (fmt == (int)gfx::Format::RGBA5551) {
+        if (a * 32 <= (2 * d + 1) * 255) return 0;
+        if (a < 255) {
+            r = std::min(255, r * 255 / a);
+            g = std::min(255, g * 255 / a);
+            b = std::min(255, b * 255 / a);
+        }
+        return (uint16_t)(dither(r, 31, d) | (dither(g, 31, d) << 5) | (dither(b, 31, d) << 10) | 0x8000);
+    }
+    int a4 = (a * 15 + 127) / 255;
+    int r4 = std::min(dither(r, 15, d), a4), g4 = std::min(dither(g, 15, d), a4), b4 = std::min(dither(b, 15, d), a4);
+    return (uint16_t)(r4 | (g4 << 4) | (b4 << 8) | (a4 << 12));
+}
+
+static void pack_texels(const uint8_t* src, uint32_t len, uint32_t at, void* dst, const Pack& pack) {
+    uint16_t* out = (uint16_t*)dst + at / 4;
+    uint32_t stride = (uint32_t)pack.stride;
+    if (!pack.swizzled) {
+        uint32_t x = (at / 4) % stride, y = (at / 4) / stride;
+        for (uint32_t k = 0; k < len / 4; k++) {
+            out[k] = pack_texel(src + k * 4, pack.fmt, BAYER[((y & 3) << 2) | (x & 3)]);
+            if (++x == stride) {
+                x = 0;
+                y++;
+            }
+        }
+        return;
+    }
+    uint32_t units = stride / 8;
+    for (uint32_t u = 0; u < len / 256; u++) {
+        uint32_t k = at / 256 + u;
+        uint32_t y0 = (k / units) * 8;
+        const uint8_t* s = src + u * 256;
+        uint16_t* o = out + u * 64;
+        for (int r = 0; r < 8; r++) {
+            const uint8_t* row = BAYER + ((y0 + r) & 3) * 4;
+            for (int i = 0; i < 8; i++) o[r * 8 + i] = pack_texel(s + (i < 4 ? r * 16 + i * 4 : 128 + r * 16 + (i - 4) * 4), pack.fmt, row[i & 3]);
+        }
+    }
+}
+
+static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* dst, uint32_t bytes, bool paced, const Pack& pack = Pack()) {
     if (fs::data_seek(f, off, SEEK_SET) != 0) return false;
+    bool packing = pack.fmt >= 0;
+    uint32_t rsize = packing ? bytes * 2 : bytes;
+    uint8_t* stage = nullptr;
+    if (packing) {
+        stage = (uint8_t*)std::malloc(INFLATE_SLICE);
+        if (!stage) return false;
+    }
     z_stream zs{};
-    if (inflateInit(&zs) != Z_OK) return false;
+    if (inflateInit(&zs) != Z_OK) {
+        std::free(stage);
+        return false;
+    }
     uint8_t in[16384];
-    zs.next_out = (Bytef*)dst;
-    zs.avail_out = paced ? std::min(rsize, INFLATE_SLICE) : rsize;
+    uint32_t slice = paced || packing ? INFLATE_SLICE : rsize;
+    zs.next_out = packing ? stage : (Bytef*)dst;
+    zs.avail_out = std::min(rsize, slice);
+    uint32_t packed = 0;
     uint32_t left = csize;
     int ret = Z_OK;
     while (ret != Z_STREAM_END) {
@@ -90,13 +159,20 @@ static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* d
         }
         ret = inflate(&zs, Z_NO_FLUSH);
         if (ret != Z_OK && ret != Z_STREAM_END) break;
+        if (packing && (zs.avail_out == 0 || ret == Z_STREAM_END)) {
+            uint32_t n = (uint32_t)zs.total_out - packed;
+            pack_texels(stage, n, packed, dst, pack);
+            packed += n;
+            zs.next_out = stage;
+        }
         if (zs.avail_out == 0 && zs.total_out < rsize) {
-            if (!g_urgent.load(std::memory_order_relaxed)) plat::sleep_ms(INFLATE_PACE_MS);
-            zs.avail_out = std::min(rsize - (uint32_t)zs.total_out, INFLATE_SLICE);
+            if (paced && !g_urgent.load(std::memory_order_relaxed)) plat::sleep_ms(INFLATE_PACE_MS);
+            zs.avail_out = std::min(rsize - (uint32_t)zs.total_out, slice);
         }
     }
     bool ok = ret == Z_STREAM_END && zs.total_out == rsize;
     inflateEnd(&zs);
+    std::free(stage);
     return ok;
 }
 
@@ -129,6 +205,11 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
         fs::data_close(f);
         return out;
     }
+    if (g_compact && out.fmt == (int)gfx::Format::RGBA8888) {
+        out.packed = true;
+        out.fmt = (int)((out.flags & 4) ? gfx::Format::RGB565 : (out.flags & 24) ? gfx::Format::RGBA5551 : gfx::Format::RGBA4444);
+    }
+    uint32_t shift = out.packed ? 1 : 0;
     if (count > 1) {
         out.lazy = true;
         out.source = rel;
@@ -147,7 +228,7 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
             c.rows = rd16(e + 10);
             c.offset = rd32(e + 12);
             c.csize = rd32(e + 16);
-            c.rsize = rd32(e + 20);
+            c.rsize = rd32(e + 20) >> shift;
             out.chunks.push_back(c);
         }
         fs::data_close(f);
@@ -156,7 +237,7 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
     }
     if (main_thread) {
         size_t need = 0;
-        for (int k = 0; k < count; k++) need += rd32(&table[(size_t)k * 24 + 20]) + (has_pal ? 1024 : 0);
+        for (int k = 0; k < count; k++) need += (rd32(&table[(size_t)k * 24 + 20]) >> shift) + (has_pal ? 1024 : 0);
         make_room(need, false);
     }
     for (int k = 0; k < count; k++) {
@@ -168,13 +249,19 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
         c.h = rd16(e + 6);
         c.stride = rd16(e + 8);
         c.rows = rd16(e + 10);
-        uint32_t off = rd32(e + 12), csize = rd32(e + 16), rsize = rd32(e + 20);
+        uint32_t off = rd32(e + 12), csize = rd32(e + 16), rsize = rd32(e + 20) >> shift;
+        Pack pack;
+        if (out.packed) {
+            pack.fmt = out.fmt;
+            pack.stride = c.stride;
+            pack.swizzled = (out.flags & 1) != 0;
+        }
         c.pixels = gfx::alloc(rsize);
         if (!c.pixels && main_thread) {
             make_room(rsize, true);
             c.pixels = gfx::alloc(rsize);
         }
-        if (!c.pixels || !inflate_range(f, off, csize, c.pixels, rsize, !main_thread)) {
+        if (!c.pixels || !inflate_range(f, off, csize, c.pixels, rsize, !main_thread, pack)) {
             if (!c.pixels) out.oom = true;
             gfx::release(c.pixels);
             free_decoded(out);
@@ -212,6 +299,7 @@ static Image* finish(Decoded& d) {
     img->fmt = d.fmt;
     img->swizzled = (d.flags & 1) != 0;
     img->lazy = d.lazy;
+    img->packed = d.packed;
     img->source = d.source;
     img->palette = std::move(d.palette);
     for (auto& c : d.chunks) {
@@ -273,6 +361,16 @@ bool read_pixel(const Image* img, int px, int py, uint32_t* out) {
     return false;
 }
 
+static Pack chunk_pack(const Image* img, const ImageChunk& c) {
+    Pack p;
+    if (img->packed) {
+        p.fmt = img->fmt;
+        p.stride = c.stride;
+        p.swizzled = img->swizzled;
+    }
+    return p;
+}
+
 static void make_room(size_t need, bool force);
 static void* take_chunk(const std::string& source, size_t index);
 static void prefetch_neighbors(const Image* img, size_t index);
@@ -293,7 +391,7 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
             make_room(need, true);
             pixels = gfx::alloc(c.rsize);
         }
-        bool ok = pixels && inflate_range(f, c.offset, c.csize, pixels, c.rsize, false);
+        bool ok = pixels && inflate_range(f, c.offset, c.csize, pixels, c.rsize, false, chunk_pack(img, c));
         fs::data_close(f);
         if (!ok) {
             gfx::release(pixels);
@@ -370,6 +468,7 @@ struct ChunkJob {
     std::string source;
     size_t index = 0;
     uint32_t offset = 0, csize = 0, rsize = 0;
+    Pack pack;
 };
 
 struct ChunkReady {
@@ -390,7 +489,7 @@ static void* decode_chunk(const ChunkJob& job) {
     fs::DataFile* f = fs::open_data(job.source);
     if (!f) return nullptr;
     void* pixels = gfx::alloc(job.rsize);
-    bool ok = pixels && inflate_range(f, job.offset, job.csize, pixels, job.rsize, true);
+    bool ok = pixels && inflate_range(f, job.offset, job.csize, pixels, job.rsize, true, job.pack);
     fs::data_close(f);
     if (ok) return pixels;
     gfx::release(pixels);
@@ -499,6 +598,7 @@ static void prefetch_neighbors(const Image* img, size_t index) {
         job.offset = n.offset;
         job.csize = n.csize;
         job.rsize = n.rsize;
+        job.pack = chunk_pack(img, n);
         g_chunk_queue.insert(g_chunk_queue.begin(), job);
         g_chunk_bytes += n.rsize;
     }
@@ -546,6 +646,7 @@ static void warm_image(const std::string& rel, const Image* img) {
         job.offset = c.offset;
         job.csize = c.csize;
         job.rsize = c.rsize;
+        job.pack = chunk_pack(img, c);
         w.jobs.push_back(job);
     }
     g_warm.push_back(std::move(w));
@@ -759,6 +860,7 @@ void pin(const std::string& folder, const std::string& name, bool pinned) {
 }
 
 void set_budget(size_t bytes) { g_budget = bytes; }
+void set_compact(bool on) { g_compact = on; }
 void trim() { evict(0); }
 void tick() {
     g_tick++;

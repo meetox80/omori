@@ -341,7 +341,7 @@ int font_build(const uint8_t* ttf, size_t ttf_len, int logical_size, int outline
     vbin_dump(meta, fnt);
     node_free(meta);
 
-    int ok = tex_encode(atlas, ATLAS_W, atlas_h, tex);
+    int ok = tex_encode_font(atlas, tex);
     img_free(atlas);
     for (int i = 0; i < ncell; i++) free(cells[i].px);
     free(cells);

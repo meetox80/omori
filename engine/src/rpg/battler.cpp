@@ -880,7 +880,7 @@ std::vector<int> GameBattlerBase::get_aura_state_type_id(const std::string& type
         const Value& aura = (*s)["aura"];
         if (!aura.is_obj()) continue;
         bool is_aura = false;
-        for (const Member* m = aura.begin_members(); m != aura.end_members(); ++m) is_aura = is_aura || m->v.size() > 0;
+        for (const Member& m : aura.members()) is_aura = is_aura || m.v.size() > 0;
         if (!is_aura) continue;
         const Value& list = aura[type.c_str()];
         for (size_t i = 0; i < list.size(); i++) arr.push_back(list[i].as_int());

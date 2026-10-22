@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../platform.h"
 
 #include <malloc.h>
 #include <pspdisplay.h>
@@ -99,6 +100,8 @@ static Stencil g_stencil = Stencil::Off;
 static const ScePspIMatrix4 g_dither = {{-4, 0, -3, 1}, {2, -2, 3, -1}, {-3, 1, -4, 0}, {3, -1, 2, -2}};
 
 constexpr size_t ARENA_BYTES = 20u << 20;
+constexpr size_t SMALL_ARENA_BYTES = 7u << 20;
+constexpr size_t SMALL_HEAP = 32u << 20;
 constexpr uint32_t ARENA_UNIT = 64;
 
 struct Arena {
@@ -115,11 +118,12 @@ static volatile SceUID g_arena_owner = -1;
 
 static void arena_init() {
     if (g_arena.base) return;
-    g_arena.base = (uint8_t*)memalign(ARENA_UNIT, ARENA_BYTES);
+    size_t bytes = plat::heap_limit() < SMALL_HEAP ? SMALL_ARENA_BYTES : ARENA_BYTES;
+    g_arena.base = (uint8_t*)memalign(ARENA_UNIT, bytes);
     if (!g_arena.base) return;
-    g_arena.size = ARENA_BYTES;
-    g_arena.free_bytes = ARENA_BYTES;
-    g_arena.free_blocks[0] = ARENA_BYTES;
+    g_arena.size = bytes;
+    g_arena.free_bytes = bytes;
+    g_arena.free_blocks[0] = bytes;
     g_arena.lock = sceKernelCreateSema("arena", 0, 1, 1, nullptr);
 }
 
@@ -274,6 +278,39 @@ bool texture_read(const Texture* t, int x, int y, uint32_t* out) {
         if (t->swizzled) off = ((size_t)(y / 8) * (bw / 16) + (xb / 16)) * 128 + (y % 8) * 16 + (xb % 16);
         else off = (size_t)y * bw + xb;
         *out = (uint32_t)p[off] | ((uint32_t)p[off + 1] << 8) | ((uint32_t)p[off + 2] << 16) | ((uint32_t)p[off + 3] << 24);
+        return true;
+    }
+    if (t->psm == GU_PSM_5650 || t->psm == GU_PSM_5551 || t->psm == GU_PSM_4444) {
+        int bw = t->stride * 2;
+        size_t off;
+        int xb = x * 2;
+        if (t->swizzled) off = ((size_t)(y / 8) * (bw / 16) + (xb / 16)) * 128 + (y % 8) * 16 + (xb % 16);
+        else off = (size_t)y * bw + xb;
+        uint32_t v = (uint32_t)p[off] | ((uint32_t)p[off + 1] << 8);
+        uint32_t r, g, b, a;
+        if (t->psm == GU_PSM_5650) {
+            r = v & 31;
+            g = (v >> 5) & 63;
+            b = v >> 11;
+            r = (r << 3) | (r >> 2);
+            g = (g << 2) | (g >> 4);
+            b = (b << 3) | (b >> 2);
+            a = 255;
+        } else if (t->psm == GU_PSM_5551) {
+            r = v & 31;
+            g = (v >> 5) & 31;
+            b = (v >> 10) & 31;
+            r = (r << 3) | (r >> 2);
+            g = (g << 3) | (g >> 2);
+            b = (b << 3) | (b >> 2);
+            a = (v & 0x8000) ? 255 : 0;
+        } else {
+            r = (v & 15) * 17;
+            g = ((v >> 4) & 15) * 17;
+            b = ((v >> 8) & 15) * 17;
+            a = (v >> 12) * 17;
+        }
+        *out = r | (g << 8) | (b << 16) | (a << 24);
         return true;
     }
     if (t->psm == GU_PSM_T8 && t->palette) {

@@ -792,7 +792,7 @@ public:
     void initialize() {
         sorted_.clear();
         const Value& info = bestiary_information();
-        for (const Member* m = info.begin_members(); m != info.end_members(); ++m) sorted_.push_back({(int)js::string_to_number(m->key), &m->v});
+        for (const Member& m : info.members()) sorted_.push_back({(int)js::string_to_number(m.key), &m.v});
         std::stable_sort(sorted_.begin(), sorted_.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         std::stable_sort(sorted_.begin(), sorted_.end(), [](const auto& a, const auto& b) {
             const Value* la = (*a.second).find("listIndex");

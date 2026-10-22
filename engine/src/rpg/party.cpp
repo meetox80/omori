@@ -791,8 +791,8 @@ void GameParty::add_defeated_enemy(int id) {
     if (!contains_int(defeated_enemies, id)) defeated_enemies.push_back(id);
     const Value& info = data::lang_entry("Bestiary.Information");
     bool all = info.is_obj();
-    for (const Member* m = info.begin_members(); m != info.end_members(); ++m) {
-        if (!contains_int(defeated_enemies, (int)js_number(m->key))) {
+    for (const Member& m : info.members()) {
+        if (!contains_int(defeated_enemies, (int)js_number(m.key))) {
             all = false;
             break;
         }

@@ -37,7 +37,7 @@
 
 | Console | What you get | What you need | Install |
 |---|---|---|---|
-| PSP | `EBOOT.PBP`, about 1.6 GB | PSP-2000, PSP-3000, PSP Go or PSP Street (E1000) with custom firmware, or PPSSPP | Copy the `PSP` folder to the memory stick |
+| PSP | `EBOOT.PBP`, about 1.6 GB | Any PSP with custom firmware, or PPSSPP | Copy the `PSP` folder to the memory stick |
 | PS Vita | `OMORI.vpk` and a `data` folder, about 2.2 GB | PS Vita or PS TV with HENkaku or Ensō and VitaShell, or Vita3K | Copy `data` to `ux0:`, install the vpk with VitaShell |
 | 3DS | `omori.3dsx`, about 1.6 GB | Any 3DS or 2DS with custom firmware and the Homebrew Launcher, or Azahar | Copy the `3ds` folder to the SD card |
 | Wii | An `apps/omori` folder, about 2.2 GB | Wii or Wii U (Wii mode) with the Homebrew Channel, or Dolphin | Copy the `apps` folder to a FAT32 SD card or USB drive |
@@ -50,9 +50,9 @@ Saves stay on the console when you update: next to the game on the PSP, Vita, 3D
 `/dev_hdd0/game/OMRI00001/USRDIR/saves` on the PS3, and in an `OMORI` folder on the memory card in slot 1 on the PS2, and in `omori/saves` on the USB drive on the Xbox 360.
 
 > [!NOTE]
-> The PSP-1000 can't run it. The EBOOT needs the 64 MB memory mode and the engine keeps a 16 MB image cache, and
-> the 1000 only has 32 MB. The PS2 has 32 MB too, so its build keeps a much smaller image cache that is sized from
-> the memory left over when it starts.
+> The PSP-1000 only has 32 MB, so on it the game keeps its images in 16-bit color and holds fewer of them in
+> memory, which means more loading. The other models get the full-color images. PPSSPP emulates a PSP-2000 unless
+> you set the PSP model to PSP-1000 in its system settings.
 
 <details>
 <summary><b>More about the browser builder</b></summary>

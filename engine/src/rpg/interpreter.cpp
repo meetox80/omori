@@ -2733,7 +2733,7 @@ void GameInterpreter::setup_shop(const std::string& name, int type) {
                                  "itemSellingConfirmationMessage", "itemBuyingCancelMessage", "itemSellingCancelMessage"};
     for (const char* k : keys) V().put(texts, js::atom(k), js::Val::str("Prologue_WHITESPACE.message_3"));
     const Value& kt = keeper["texts"];
-    for (const Member* m = kt.begin_members(); m != kt.end_members(); ++m) V().put(texts, js::atom(m->key), js::value_to_js(m->v));
+    for (const Member& m : kt.members()) V().put(texts, js::atom(m.key), js::value_to_js(m.v));
     put("texts", texts);
 }
 

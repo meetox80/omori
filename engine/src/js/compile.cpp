@@ -75,7 +75,7 @@ Node* value_to_node(const ::Value& v) {
     }
     case ::Value::Obj: {
         Node* o = node_obj();
-        for (const Member* m = v.begin_members(); m != v.end_members(); ++m) node_set(o, m->key, value_to_node(m->v));
+        for (const Member& m : v.members()) node_set(o, m.key, value_to_node(m.v));
         return o;
     }
     }

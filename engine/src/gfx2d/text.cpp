@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <new>
 
 #include "../core/fs.h"
 #include "../core/value.h"
@@ -19,7 +20,49 @@ namespace g2d {
 static uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
 
+constexpr int FONT_FORMAT = 5;
+
+static bool load_font_format(fs::DataFile* f, const uint8_t* hd, int& w, int& h, std::vector<uint16_t>& out) {
+    uint8_t e[24];
+    if (rd16(&hd[16]) != 1 || fs::data_read(f, e, 24) != 24) return false;
+    w = rd16(&hd[8]);
+    h = rd16(&hd[10]);
+    uint32_t off = rd32(e + 12), csize = rd32(e + 16), rsize = rd32(e + 20);
+    if (rd16(e + 8) != w || rd16(e + 10) != h || rsize != (uint32_t)w * h * 2 || fs::data_seek(f, off, SEEK_SET) != 0) return false;
+    out.assign((size_t)w * h, 0);
+    z_stream zs{};
+    if (inflateInit(&zs) != Z_OK) return false;
+    uint8_t in[16384];
+    zs.next_out = (Bytef*)out.data();
+    zs.avail_out = rsize;
+    int ret = Z_OK;
+    while (ret != Z_STREAM_END && csize > 0) {
+        if (zs.avail_in == 0) {
+            size_t got = fs::data_read(f, in, std::min<size_t>(sizeof(in), csize));
+            if (got == 0) break;
+            csize -= (uint32_t)got;
+            zs.next_in = in;
+            zs.avail_in = (uInt)got;
+        }
+        ret = inflate(&zs, Z_NO_FLUSH);
+        if (ret != Z_OK && ret != Z_STREAM_END) break;
+    }
+    bool ok = ret == Z_STREAM_END && zs.total_out == rsize;
+    inflateEnd(&zs);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    for (uint16_t& v : out) v = (uint16_t)((v >> 8) | (v << 8));
+#endif
+    return ok;
+}
+
 static bool load_linear(const std::string& rel, int& w, int& h, std::vector<uint16_t>& out) {
+    if (fs::DataFile* f = fs::open_data(rel)) {
+        uint8_t hd[20];
+        bool font = fs::data_read(f, hd, 20) == 20 && std::memcmp(hd, "TTEX", 4) == 0 && hd[5] == FONT_FORMAT;
+        bool ok = font && load_font_format(f, hd, w, h, out);
+        fs::data_close(f);
+        if (font) return ok;
+    }
     std::vector<uint8_t> d;
     if (!fs::read_data(rel, d) || d.size() < 20 || std::memcmp(d.data(), "TTEX", 4) != 0) return false;
     int fmt = d[5], flags = d[6];
@@ -57,9 +100,9 @@ bool FontFace::load(const std::string& base) {
     ascent = (float)r["ascent"].num();
     descent = (float)r["descent"].num();
     const Value& gl = r["glyphs"];
-    for (const Member* m = gl.begin_members(); m != gl.end_members(); ++m) {
+    for (const Member& m : gl.members()) {
         GlyphInfo g;
-        const Value& a = m->v;
+        const Value& a = m.v;
         g.adv = (float)a[0].num();
         for (int ph = 0; ph < 3; ph++) {
             const Value& q = a[1 + ph];
@@ -70,16 +113,16 @@ bool FontFace::load(const std::string& base) {
             g.phase[ph].ox = (float)q[4].num();
             g.phase[ph].oy = (float)q[5].num();
         }
-        glyphs[(uint32_t)std::strtoul(m->key, nullptr, 10)] = g;
+        glyphs[(uint32_t)std::strtoul(m.key, nullptr, 10)] = g;
     }
     this->base = base;
     return true;
 }
 
 #if defined(PSP) || defined(__3DS__) || defined(__PS2__)
-static const size_t ATLAS_BUDGET = 2u << 20;
+static size_t g_atlas_budget = 2u << 20;
 #else
-static const size_t ATLAS_BUDGET = 8u << 20;
+static size_t g_atlas_budget = 8u << 20;
 #endif
 
 static std::vector<FontFace*>& resident_faces() {
@@ -101,16 +144,21 @@ const uint16_t* FontFace::pixels() {
     if (atlas_failed) return nullptr;
     std::vector<uint16_t> loaded;
     int w = 0, h = 0;
-    if (!load_linear(base + ".tex", w, h, loaded)) {
-        plat::log("missing font atlas %s", base.c_str());
-        atlas_failed = true;
+    try {
+        if (!load_linear(base + ".tex", w, h, loaded)) {
+            plat::log("missing font atlas %s", base.c_str());
+            atlas_failed = true;
+            return nullptr;
+        }
+    } catch (const std::bad_alloc&) {
+        plat::log("font atlas %s skipped: out of memory", base.c_str());
         return nullptr;
     }
     std::vector<FontFace*>& faces = resident_faces();
     size_t used = 0;
     for (FontFace* f : faces) used += f->atlas.size() * sizeof(uint16_t);
     size_t need = loaded.size() * sizeof(uint16_t);
-    while (!faces.empty() && used + need > ATLAS_BUDGET) {
+    while (!faces.empty() && used + need > g_atlas_budget) {
         FontFace* oldest = *std::min_element(faces.begin(), faces.end(), [](FontFace* a, FontFace* b) { return a->last_use < b->last_use; });
         used -= oldest->atlas.size() * sizeof(uint16_t);
         drop_atlas(oldest);
@@ -121,6 +169,8 @@ const uint16_t* FontFace::pixels() {
     faces.push_back(this);
     return atlas.data();
 }
+
+void set_font_atlas_budget(size_t bytes) { g_atlas_budget = bytes; }
 
 void release_font_atlases() {
     std::vector<FontFace*> faces = resident_faces();

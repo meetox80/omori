@@ -637,12 +637,12 @@ void GameBattler::on_action_end_state_effects() {
 
 void GameBattler::remove_state_category_effect(const Value& obj, GameBattler* user) {
     const Value& cats = obj["removeCategory"];
-    for (const Member* m = cats.begin_members(); m != cats.end_members(); ++m) {
-        std::string category = m->key;
-        if (m->v.is_str() && m->v.string() == "ALL") {
+    for (const Member& m : cats.members()) {
+        std::string category = m.key;
+        if (m.v.is_str() && m.v.string() == "ALL") {
             remove_state_category_all(category);
         } else {
-            double value = remove_state_category_eval(obj, category, user, m->v.num());
+            double value = remove_state_category_eval(obj, category, user, m.v.num());
             remove_state_category(category, (int)value);
         }
     }
