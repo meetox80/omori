@@ -326,6 +326,10 @@ bool start(MixFn fn) {
     return true;
 }
 
+static void feeder_entry(void* arg) { ((void (*)())arg)(); }
+
+bool start_feeder(void (*fn)()) { return plat::spawn(feeder_entry, (void*)fn, 64 * 1024, plat::main_priority() - 1, true); }
+
 void stop() {
     if (!g_ndsp) return;
     if (g_run) {

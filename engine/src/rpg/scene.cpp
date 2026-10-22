@@ -11,6 +11,7 @@
 #include "../core/fs.h"
 #include "../core/image.h"
 #include "../omori/video.h"
+#include "../platform/audio_out.h"
 #include "../platform/common/testing.h"
 #include "../platform/gfx.h"
 #include "../platform/platform.h"
@@ -329,6 +330,10 @@ static void perf_report() {
     plat::log("perf counts: objects %.1f, batches %.1f, heap used %u of %u KB, pixel arena free %u KB", g2d::take_render_count() / n,
               gfx::take_batch_count() / n, (unsigned)(plat::heap_used() / 1024), (unsigned)(plat::heap_limit() / 1024),
               (unsigned)(gfx::arena_free_bytes() / 1024));
+    double mix_max = 0;
+    int starved = 0;
+    double mix_avg = audio::take_mix_stats(mix_max, starved);
+    plat::log("perf audio: mix %.0f/%.0f us per %d frames, %d starved", mix_avg, mix_max, audio_out::BLOCK, starved);
     g_perf = PerfStats();
 }
 

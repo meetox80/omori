@@ -20,6 +20,6 @@ constexpr bool NINTENDO_BUTTONS = true;
 constexpr bool CANVAS_HEAP = true;
 constexpr size_t HEAP_RESERVE = 5u << 20;
 constexpr int AUDIO_RATE = 44100;
-constexpr int AUDIO_AHEAD = 0;
+constexpr int AUDIO_AHEAD = 32768;
 
 }

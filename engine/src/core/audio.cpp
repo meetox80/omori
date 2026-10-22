@@ -618,8 +618,14 @@ static inline bool next_frame(Voice& v, int32_t& l, int32_t& r) {
     return true;
 }
 
+static std::atomic<int> g_starved{0};
+
 static void mix_voice(Voice& v, int32_t* acc, int frames, int kind_vol) {
-    if (!v.active || !ready(v, frames)) return;
+    if (!v.active) return;
+    if (!ready(v, frames)) {
+        g_starved++;
+        return;
+    }
     int32_t base = (int32_t)(((int64_t)v.vol_q * std::clamp(kind_vol, 0, 100)) / 100);
     int32_t kl = (int32_t)(((int64_t)base * v.pan_l) >> 15);
     int32_t kr = (int32_t)(((int64_t)base * v.pan_r) >> 15);
@@ -669,9 +675,10 @@ static double g_mix_time = 0;
 static double g_mix_max = 0;
 static int g_mix_count = 0;
 
-double take_mix_stats(double& max_us) {
+double take_mix_stats(double& max_us, int& starved) {
     double avg = g_mix_count ? g_mix_time / g_mix_count : 0;
     max_us = g_mix_max;
+    starved = g_starved.exchange(0);
     g_mix_time = 0;
     g_mix_max = 0;
     g_mix_count = 0;
