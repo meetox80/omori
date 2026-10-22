@@ -30,7 +30,11 @@ static int64_t tell(FILE* f) {
 
 File* file_open(const std::string& path) {
     FILE* f = std::fopen(path.c_str(), "rb");
-    return f ? new File{f} : nullptr;
+    if (!f) return nullptr;
+#if defined(__3DS__)
+    std::setvbuf(f, nullptr, _IOFBF, 64 * 1024);
+#endif
+    return new File{f};
 }
 
 size_t file_read(File* f, void* dst, size_t size) { return std::fread(dst, 1, size, f->f); }
