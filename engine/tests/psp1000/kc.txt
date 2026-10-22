@@ -1,0 +1,62 @@
+at 950
+press ok
+at 1010
+warp 92 4 1 2
+at 1160
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 1164
+eval [[1,2],[2,14],[3,28],[4,45]].forEach(function(p){var a=$gameActors.actor(p[0]);a.changeLevel(20,false);a.forceChangeEquip(0,$dataWeapons[p[1]]);a.recoverAll();});
+at 1170
+battle 421
+at 1400
+press ok
+at 1424
+press ok
+at 1448
+press ok
+at 1472
+press ok
+at 1496
+press ok
+at 1520
+press ok
+at 1544
+press ok
+at 1568
+press ok
+at 1592
+press ok
+at 1616
+press ok
+at 1640
+press ok
+at 1664
+press ok
+at 1688
+press ok
+at 1712
+press ok
+at 1736
+press ok
+at 1760
+press ok
+at 1784
+press ok
+at 1808
+press ok
+at 1832
+press ok
+at 1856
+press ok
+at 1880
+press ok
+at 1904
+press ok
+at 1928
+press ok
+at 1952
+press ok
+at 3008
+eval console.log("test-psp1000 done")
+at 3010
+exit

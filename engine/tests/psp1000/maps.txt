@@ -1,0 +1,312 @@
+at 950
+press ok
+at 1010
+press ok
+at 1068
+press ok
+at 1126
+press ok
+at 1184
+press ok
+at 1242
+press ok
+at 1300
+press ok
+at 1358
+press ok
+at 1416
+press ok
+at 1474
+press ok
+at 1532
+press ok
+at 1590
+press ok
+at 1648
+press ok
+at 1706
+press ok
+at 1764
+press ok
+at 1822
+press ok
+at 1880
+press ok
+at 1938
+press ok
+at 1996
+press ok
+at 2054
+press ok
+at 2112
+press ok
+at 2170
+press ok
+at 2228
+press ok
+at 2286
+press ok
+at 2344
+press ok
+at 2402
+press ok
+at 2460
+press ok
+at 2518
+press ok
+at 2576
+press ok
+at 2634
+press ok
+at 2692
+press ok
+at 2750
+press ok
+at 2808
+press ok
+at 2866
+press ok
+at 2924
+press ok
+at 2982
+press ok
+at 3040
+press ok
+at 3098
+press ok
+at 3156
+press ok
+at 3214
+press ok
+at 3272
+press ok
+at 3330
+press ok
+at 3388
+press ok
+at 3446
+press ok
+at 3504
+press ok
+at 3562
+press ok
+at 3620
+press ok
+at 3678
+press ok
+at 3736
+press ok
+at 3794
+press ok
+at 3852
+press ok
+at 3910
+press ok
+at 3968
+press ok
+at 4026
+press ok
+at 4084
+press ok
+at 4142
+press ok
+at 4200
+press ok
+at 4258
+press ok
+at 4316
+press ok
+at 4374
+press ok
+at 4432
+press ok
+at 4490
+press ok
+at 4548
+press ok
+at 4606
+press ok
+at 4664
+press ok
+at 4722
+press ok
+at 4780
+press ok
+at 4838
+press ok
+at 4896
+press ok
+at 4954
+press ok
+at 5012
+press ok
+at 7300
+eval STEP=function(x,y,d,n){var p=$gamePlayer;for(var k=0;k<n;k++){if(!p.canPass(x,y,d))return 0;x+=d==6?1:d==4?-1:0;y+=d==2?1:d==8?-1:0;if($gameMap.eventsXy(x,y).length)return 0;}return 1;}
+at 7302
+eval LINE=function(x,y,d){var p=$gamePlayer,dx=d==6?1:d==4?-1:0,dy=d==2?1:d==8?-1:0;p.locate(x,y);p.setDirection(d);p.setTransparent(false);p.setOpacity(255);p.showFollowers();for(var k=0;k<3;k++){var f=p.followers().follower(k);f.locate(x-dx*(k+1),y-dy*(k+1));f.setDirection(d);f.setOpacity(255);}p.followers().refresh();p.center(x,y);}
+at 7304
+eval PLACE=function(f,g){var m=$gameMap,w=m.width(),h=m.height(),ds=[6];for(var r=0;r<60;r++)for(var j=-r;j<=r;j++)for(var i=-r;i<=r;i++){if(Math.max(Math.abs(i),Math.abs(j))!=r)continue;var x=Math.floor(w*f)+i,y=Math.floor(h*g)+j;for(var q=0;q<1;q++){var d=ds[q];if(STEP(x,y,d,9)&&STEP(x,y,10-d,4)){LINE(x,y,d);return d;}}}return 0;}
+at 7396
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 7400
+reset
+at 7401
+warp 111 10 10 2
+at 7440
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 7450
+eval PLACE(0.5,0.5)
+at 7456
+at 7482
+hold right 114
+at 7497
+at 7509
+at 7521
+at 7533
+at 7545
+at 7557
+at 7569
+at 7636
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 7640
+reset
+at 7641
+warp 113 10 10 2
+at 7680
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 7690
+eval PLACE(0.5,0.5)
+at 7696
+at 7722
+hold right 114
+at 7737
+at 7749
+at 7761
+at 7773
+at 7785
+at 7797
+at 7809
+at 7876
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 7880
+reset
+at 7881
+warp 139 10 10 2
+at 7920
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 7930
+eval PLACE(0.5,0.5)
+at 7936
+at 7962
+hold right 114
+at 7977
+at 7989
+at 8001
+at 8013
+at 8025
+at 8037
+at 8049
+at 8116
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 8120
+reset
+at 8121
+warp 187 10 10 2
+at 8160
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 8170
+eval PLACE(0.5,0.5)
+at 8176
+at 8202
+hold right 114
+at 8217
+at 8229
+at 8241
+at 8253
+at 8265
+at 8277
+at 8289
+at 8356
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 8360
+reset
+at 8361
+warp 196 10 10 2
+at 8400
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 8410
+eval PLACE(0.5,0.5)
+at 8416
+at 8442
+hold right 114
+at 8457
+at 8469
+at 8481
+at 8493
+at 8505
+at 8517
+at 8529
+at 8836
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 8840
+reset
+at 8841
+warp 217 10 10 2
+at 8880
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 8890
+eval PLACE(0.5,0.5)
+at 8896
+at 8922
+hold right 114
+at 8937
+at 8949
+at 8961
+at 8973
+at 8985
+at 8997
+at 9009
+at 9316
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 9320
+reset
+at 9321
+warp 349 10 10 2
+at 9360
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 9370
+eval PLACE(0.5,0.5)
+at 9376
+at 9402
+hold right 114
+at 9417
+at 9429
+at 9441
+at 9453
+at 9465
+at 9477
+at 9489
+at 9556
+eval var w = SceneManager._scene && SceneManager._scene._messageWindow; if (w) w.terminateMessage(); $gameMessage.clear(); $gameMap._interpreter.clear();
+at 9560
+reset
+at 9561
+warp 351 10 10 2
+at 9600
+eval $gameParty.addActor(2); $gameParty.addActor(3); $gameParty.addActor(4); $gamePlayer.refresh(); $gamePlayer.showFollowers(); $gamePlayer.followers().refresh();
+at 9610
+eval PLACE(0.5,0.5)
+at 9616
+at 9642
+hold right 114
+at 9657
+at 9669
+at 9681
+at 9693
+at 9705
+at 9717
+at 9729
+at 9744
+eval console.log("test-psp1000 done")
+at 9746
+exit

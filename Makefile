@@ -42,7 +42,7 @@ RUN_ps3 := --pak "$(OUT)/omori.pak"
 RUN_ps2 := --pak "$(OUT)/omori.pak"
 
 .PHONY: all help engines $(CONSOLES) psp-toolchain vita-toolchain 3ds-toolchain wii-toolchain wiiu-toolchain ps3-toolchain ps2-toolchain xbox360-toolchain vita3k cemu zig wasi-sdk tailwind vita-shaders wiiu-shaders ps3-shaders xbox360-shaders desktop \
-	builder test run play \
+	builder test test-psp1000 run play \
 	release web web-serve clean
 
 all: builder
@@ -80,6 +80,7 @@ help:
 	@echo "make run            run the builder; GAME=path/to/game, OUT=folder and TARGET=$(subst $() $(),|,$(CONSOLES)) are optional"
 	@echo "make play           run the built game in the desktop build (OUT and TARGET as used by make run)"
 	@echo "make test           run the builder unit tests"
+	@echo "make test-psp1000   play scripted scenes of a built EBOOT in PPSSPP as a PSP-1000 and check memory; EBOOT=path is optional"
 	@echo "make release        cross-compile the builder for Linux, Windows and macOS into build/builder"
 	@echo "make web            build the in-browser builder page into build/web"
 	@echo "make web-serve      serve build/web on http://localhost:8080"
@@ -206,6 +207,9 @@ builder: engines
 
 test: builder
 	ctest --test-dir build/builder-native --output-on-failure
+
+test-psp1000:
+	./scripts/test-psp1000.sh $(EBOOT)
 
 run: builder
 	$(BUILDER) $(if $(GAME),"$(GAME)" -o "$(OUT)" --target $(TARGET) $(RUN_$(TARGET)))

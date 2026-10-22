@@ -1,0 +1,8 @@
+at 1100
+press ok
+at 1200
+press ok
+at 8398
+eval console.log("test-psp1000 done")
+at 8400
+exit
