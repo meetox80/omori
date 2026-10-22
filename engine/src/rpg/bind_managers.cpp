@@ -511,19 +511,19 @@ void bind_sound_manager() {
 void bind_image_manager() {
     js::Klass& kl = klass("ImageManager");
     static const std::pair<const char*, const char*> loaders[] = {
-        {"loadAnimation", "animations"}, {"loadBattleback1", "battlebacks1"}, {"loadBattleback2", "battlebacks2"}, {"loadEnemy", "enemies"},
-        {"loadCharacter", "characters"}, {"loadFace", "faces"},                {"loadParallax", "parallaxes"},     {"loadPicture", "pictures"},
-        {"loadSvActor", "sv_actors"},    {"loadSvEnemy", "sv_enemies"},        {"loadSystem", "system"},           {"loadTileset", "tilesets"},
-        {"loadTitle1", "titles1"},       {"loadTitle2", "titles2"},            {"loadAtlas", "atlases"}};
+        {"loadAnimation", "img/animations"}, {"loadBattleback1", "img/battlebacks1"}, {"loadBattleback2", "img/battlebacks2"},
+        {"loadEnemy", "img/enemies"}, {"loadCharacter", "img/characters"}, {"loadFace", "img/faces"}, {"loadParallax", "img/parallaxes"},
+        {"loadPicture", "img/pictures"}, {"loadSvActor", "img/sv_actors"}, {"loadSvEnemy", "img/sv_enemies"}, {"loadSystem", "img/system"},
+        {"loadTileset", "img/tilesets"}, {"loadTitle1", "img/titles1"}, {"loadTitle2", "img/titles2"}, {"loadAtlas", "img/atlases"}};
     for (auto& l : loaders) {
         const char* folder = l.second;
         kl.method(l.first, [folder](js::JsObject&, js::Vm&, Args& a) { return bitmap_js(folder, js::arg(a, 0).to_str()); });
     }
     kl.method("isReady", [](js::JsObject&, js::Vm&, Args&) { return Val::boolean(true); });
-    kl.method("reserveCharacter", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("characters", js::arg(a, 0).to_str()); });
-    kl.method("reservePicture", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("pictures", js::arg(a, 0).to_str()); });
-    kl.method("reserveFace", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("faces", js::arg(a, 0).to_str()); });
-    kl.method("reserveSystem", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("system", js::arg(a, 0).to_str()); });
+    kl.method("reserveCharacter", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("img/characters", js::arg(a, 0).to_str()); });
+    kl.method("reservePicture", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("img/pictures", js::arg(a, 0).to_str()); });
+    kl.method("reserveFace", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("img/faces", js::arg(a, 0).to_str()); });
+    kl.method("reserveSystem", [](js::JsObject&, js::Vm&, Args& a) { return bitmap_js("img/system", js::arg(a, 0).to_str()); });
 }
 
 void bind_config_manager() {
