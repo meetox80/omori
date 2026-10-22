@@ -261,7 +261,7 @@ const uint16_t* FontFace::pixels() {
     size_t used = 0;
     for (FontFace* f : faces) used += f->atlas.size() * sizeof(uint16_t);
     size_t need = loaded.size() * sizeof(uint16_t);
-    while (!faces.empty() && used + need > g_atlas_budget) {
+    while (!faces.empty() && (used + need > g_atlas_budget || plat::heap_tight(1u << 20))) {
         FontFace* oldest = *std::min_element(faces.begin(), faces.end(), [](FontFace* a, FontFace* b) { return a->last_use < b->last_use; });
         used -= oldest->atlas.size() * sizeof(uint16_t);
         drop_atlas(oldest);

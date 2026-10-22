@@ -448,7 +448,7 @@ static void cache_se(const std::string& name, const std::shared_ptr<Pcm>& pcm) {
     g_se_cache[name] = pcm;
     g_se_order.push_back(name);
     g_se_bytes += pcm->data.size() * 2;
-    while (g_se_bytes > g_se_budget && g_se_order.size() > 1) {
+    while ((g_se_bytes > g_se_budget || plat::heap_tight(1u << 20)) && g_se_order.size() > 1) {
         std::string victim = g_se_order.front();
         g_se_order.erase(g_se_order.begin());
         auto v = g_se_cache.find(victim);

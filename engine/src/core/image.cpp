@@ -378,6 +378,12 @@ static void make_room(size_t need, bool force);
 static void* take_chunk(const std::string& source, size_t index);
 static void prefetch_neighbors(const Image* img, size_t index);
 
+static void log_chunk_skip(const Image* img, size_t index) {
+    static std::unordered_set<std::string> logged;
+    if (!logged.insert(img->source + "#" + std::to_string(index)).second) return;
+    plat::log("image %s chunk %u skipped: out of memory", img->source.c_str(), (unsigned)index);
+}
+
 gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     Image* img = const_cast<Image*>(cimg);
     if (!img || index >= img->chunks.size()) return nullptr;
@@ -394,6 +400,7 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
         fs::data_close(f);
         if (!ok) {
             gfx::release(pixels);
+            if (!pixels) log_chunk_skip(img, index);
             return nullptr;
         }
     }

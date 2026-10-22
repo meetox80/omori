@@ -50,6 +50,10 @@ double time_seconds();
 uint64_t time_us();
 size_t heap_used();
 size_t heap_limit();
+inline bool heap_tight(size_t margin) {
+    size_t limit = heap_limit();
+    return limit && heap_used() + margin > limit;
+}
 void set_low_memory_handler(void (*fn)());
 void frame_end();
 const Options& options();
