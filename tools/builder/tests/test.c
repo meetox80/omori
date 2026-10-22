@@ -385,6 +385,39 @@ static void test_layouts(void) {
     target_set(keep);
 }
 
+static void test_face_chunks(void) {
+    Image* face = img_new(424, 212);
+    for (int i = 0; i < 424 * 212; i++) {
+        uint8_t* p = face->px + i * 4;
+        p[0] = (uint8_t)(i % 424);
+        p[1] = (uint8_t)(i / 424);
+        p[2] = 90;
+        p[3] = 255;
+    }
+    const Target* keep = g_target;
+    for (int id = 0; id < TARGET_COUNT; id++) {
+        const Target* t = target_get((TargetId)id);
+        target_set(t);
+        Buf out = {0};
+        CHECK(tex_from_image(face, 4, 2, 1, &out));
+        int n = rd16(out.data + 16);
+        int cell = (int)rint(106 * t->tex_scale);
+        int split = t->layout != TEX_PICA && t->layout != TEX_PSP;
+        CHECK(split ? n == 8 : n < 8);
+        for (int k = 0; split && k < n; k++) {
+            const uint8_t* c = out.data + 20 + k * 24;
+            CHECK(rd16(c) == (k % 4) * cell && rd16(c + 2) == (k / 4) * cell && rd16(c + 4) == cell && rd16(c + 6) == cell);
+        }
+        buf_free(&out);
+        Buf whole = {0};
+        CHECK(tex_from_image(face, 4, 2, 0, &whole));
+        CHECK(rd16(whole.data + 16) == 1);
+        buf_free(&whole);
+    }
+    target_set(keep);
+    img_free(face);
+}
+
 static void test_3dsx_pack(void) {
     Buf in = {0};
     buf_put(&in, "3DSX", 4);
@@ -877,6 +910,7 @@ static void test_adpcm(void) {
 int main(void) {
     test_crypto();
     test_layouts();
+    test_face_chunks();
     test_3dsx_pack();
     test_json_vbin();
     test_scripts();

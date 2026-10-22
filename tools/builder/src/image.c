@@ -486,10 +486,8 @@ static void screen_frames(const Image* pm, int orig_w, int orig_h, int* bw, int*
     *bh = fh;
 }
 
-int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
+static int tex_encode_blocks(const Image* pm, int orig_w, int orig_h, int bw, int bh, Buf* out) {
     int ws[64], hs[64];
-    int bw, bh;
-    screen_frames(pm, orig_w, orig_h, &bw, &bh);
     int nw = split_sizes(pm->w, bw, ws);
     int nh = split_sizes(pm->h, bh, hs);
     int nchunks = nw * nh;
@@ -583,6 +581,23 @@ int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
     return 1;
 }
 
+int tex_encode(const Image* pm, int orig_w, int orig_h, Buf* out) {
+    int bw, bh;
+    screen_frames(pm, orig_w, orig_h, &bw, &bh);
+    return tex_encode_blocks(pm, orig_w, orig_h, bw, bh, out);
+}
+
+static int cell_blocks(const Image* pm, int cells_x, int cells_y, int* bw, int* bh) {
+    *bw = *bh = 0;
+    if (cells_x <= 0 || cells_y <= 0 || cells_x * cells_y < 2 || pm->w % cells_x || pm->h % cells_y) return 0;
+    int cw = pm->w / cells_x, ch = pm->h / cells_y, stride, rows;
+    chunk_extent(cw, ch, &stride, &rows);
+    if ((double)stride * rows > (double)cw * ch * 1.08) return 0;
+    *bw = cw;
+    *bh = ch;
+    return 1;
+}
+
 int tex_encode_font(const Image* pm, Buf* out) {
     size_t n = (size_t)pm->w * pm->h, raw_len = n * 2;
     uint8_t* raw = xmalloc(raw_len ? raw_len : 1);
@@ -649,7 +664,7 @@ static Image* resize_cells(const Image* img, int cols, int rows) {
     return out;
 }
 
-int tex_from_image(const Image* straight, int cells_x, int cells_y, Buf* out) {
+int tex_from_image(const Image* straight, int cells_x, int cells_y, int cell_chunks, Buf* out) {
     Image* res;
     if (cells_x > 0 && cells_y > 0) {
         res = resize_cells(straight, cells_x, cells_y);
@@ -665,7 +680,9 @@ int tex_from_image(const Image* straight, int cells_x, int cells_y, Buf* out) {
             res = pm;
         }
     }
-    int ok = tex_encode(res, straight->w, straight->h, out);
+    int bw, bh;
+    int ok = cell_chunks && cell_blocks(res, cells_x, cells_y, &bw, &bh) ? tex_encode_blocks(res, straight->w, straight->h, bw, bh, out)
+                                                                          : tex_encode(res, straight->w, straight->h, out);
     img_free(res);
     return ok;
 }
@@ -673,7 +690,7 @@ int tex_from_image(const Image* straight, int cells_x, int cells_y, Buf* out) {
 int tex_from_png(const uint8_t* png, size_t len, int cells_x, int cells_y, Buf* out) {
     Image* img = img_load_png(png, len);
     if (!img) return 0;
-    int ok = tex_from_image(img, cells_x, cells_y, out);
+    int ok = tex_from_image(img, cells_x, cells_y, 0, out);
     img_free(img);
     return ok;
 }

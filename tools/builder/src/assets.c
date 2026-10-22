@@ -176,7 +176,7 @@ static void image_job_body(ImageJob* job) {
     }
     int cx, cy;
     cell_grid(job->logical, img->w, img->h, &cx, &cy);
-    if (!tex_from_image(img, cx, cy, &job->entry->data)) job->entry->error = str_fmt("%s: could not convert", job->logical);
+    if (!tex_from_image(img, cx, cy, !strncmp(job->logical, "img/faces/", 10), &job->entry->data)) job->entry->error = str_fmt("%s: could not convert", job->logical);
     img_free(img);
 }
 
