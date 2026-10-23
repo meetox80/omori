@@ -11,6 +11,7 @@
 #include "../core/border.h"
 #include "../core/fs.h"
 #include "../core/image.h"
+#include "../core/loader.h"
 #include "../omori/bottom_screen.h"
 #include "../omori/video.h"
 #include "../platform/audio_out.h"
@@ -247,8 +248,18 @@ void exit_game() {
 
 void stop() { g_stopped = true; }
 
+static bool showing_black() {
+    if (!g_scene || !g_started) return true;
+    const g2d::ScreenSprite* f = g_scene->fade_sprite.get();
+    if (f && f->visible && f->opacity() >= 255 && !f->red && !f->green && !f->blue) return true;
+    const char* n = g_scene->name();
+    bool spriteset = !std::strcmp(n, "Scene_Map") || !std::strcmp(n, "Scene_Battle");
+    return spriteset && game_objects_exist() && game_screen().brightness <= 0;
+}
+
 static void change_scene() {
     if (is_scene_changing() && !is_current_scene_busy()) {
+        if (g_next && showing_black()) loader::begin();
         if (g_scene) {
             g_scene->terminate();
             g_previous = g_scene->name();
@@ -369,6 +380,7 @@ Scope::~Scope() {
 namespace scene_manager {
 
 static void render_scene() {
+    loader::end();
     double tp = plat::time_seconds();
     gfx::present();
     double t0 = plat::time_seconds();
@@ -394,12 +406,14 @@ static void render_scene() {
 g2d::BitmapPtr snap() {
     g2d::BitmapPtr b = g2d::Bitmap::create(640, 480);
     if (g_scene) {
+        loader::hold(true);
         gfx::begin_frame(0xFF000000u);
         g2d::RenderState rs = root_state();
         gfx::set_scissor(rs.cx0, rs.cy0, rs.cx1 - rs.cx0, rs.cy1 - rs.cy0);
         g_scene->render(rs);
         gfx::reset_scissor();
         gfx::end_frame();
+        loader::hold(false);
     }
     b->fill_rows([](int y, uint32_t* row, int w) {
         if (!gfx::capture_row(y + (int)images::OFFSET_Y, (int)images::OFFSET_X, w, row)) {

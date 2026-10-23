@@ -7,8 +7,21 @@
 
 #include "bytes.h"
 #include "fs.h"
+#include "loader.h"
 
 static const Value g_null;
+static uint32_t g_parsed = 0;
+constexpr size_t READ_SLICE = 256 * 1024;
+
+static bool read_sliced(fs::DataFile* f, uint8_t* dst, size_t size) {
+    for (size_t done = 0; done < size;) {
+        size_t n = std::min(READ_SLICE, size - done);
+        if (fs::data_read(f, dst + done, n) != n) return false;
+        done += n;
+        loader::pump();
+    }
+    return true;
+}
 
 const Value& Value::null_value() { return g_null; }
 
@@ -99,6 +112,7 @@ static bool read_varint(const std::vector<uint8_t>& d, size_t& pos, uint64_t& ou
 
 bool Document::parse(size_t& pos, Value& out) {
     if (pos >= (*src_).size()) return false;
+    if (!(++g_parsed & 4095)) loader::pump();
     uint8_t tag = (*src_)[pos++];
     uint64_t v = 0;
     switch (tag) {
@@ -273,7 +287,7 @@ bool Document::load_data(const std::string& rel) {
     if (ok) {
         data_.assign(head, head + 12);
         data_.resize(12 + (size_t)table_len);
-        ok = fs::data_read(f, data_.data() + 12, table_len) == table_len;
+        ok = read_sliced(f, data_.data() + 12, table_len);
     }
     std::vector<uint8_t> body;
     if (ok) {
@@ -283,7 +297,7 @@ bool Document::load_data(const std::string& rel) {
         fs::data_seek(f, start, SEEK_SET);
         if (end > start) {
             body.resize((size_t)(end - start));
-            ok = fs::data_read(f, body.data(), body.size()) == body.size();
+            ok = read_sliced(f, body.data(), body.size());
         }
     }
     fs::data_close(f);

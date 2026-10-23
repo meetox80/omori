@@ -61,6 +61,7 @@ void tick();
 void clear();
 size_t used_bytes();
 void pin(const std::string& folder, const std::string& name, bool pinned);
+void drop(const std::string& folder, const std::string& name);
 bool logical_size(const std::string& folder, const std::string& name, int& w, int& h);
 bool logical_size_path(const std::string& rel, int& w, int& h);
 

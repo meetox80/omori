@@ -163,6 +163,8 @@ void frame_end() {
     if (testing::exit_due(g_frame)) g_running = false;
 }
 
+void frame_show() { gfx::end_frame(); }
+
 const Options& options() { return g_opt; }
 const std::string& data_root() { return g_opt.data_root; }
 const std::string& save_root() { return g_opt.save_root; }

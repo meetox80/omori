@@ -57,6 +57,7 @@ inline bool heap_tight(size_t margin) {
 }
 void set_low_memory_handler(void (*fn)());
 void frame_end();
+void frame_show();
 const Options& options();
 const std::string& data_root();
 const std::string& save_root();

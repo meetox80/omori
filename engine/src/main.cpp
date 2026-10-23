@@ -1,6 +1,7 @@
 #include "core/audio.h"
 #include "core/fs.h"
 #include "core/image.h"
+#include "core/loader.h"
 #include "gfx2d/bitmap.h"
 #include "gfx2d/text.h"
 #include "js/random.h"
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
 #else
     images::set_budget(32u << 20);
 #endif
+    loader::begin();
     size_t heap_before_data = plat::heap_used();
     if (!data::load()) {
         plat::log("data missing");

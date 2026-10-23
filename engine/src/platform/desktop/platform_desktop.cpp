@@ -200,21 +200,24 @@ static void write_shot(uint64_t frame) {
 
 int pending_ticks() { return 1; }
 
+static void show() {
+    if (!g_renderer) return;
+    SDL_UpdateTexture(g_screen, nullptr, gfx::framebuffer(), gfx::SCREEN_W * 4);
+    SDL_RenderClear(g_renderer);
+    SDL_Rect top{0, 0, gfx::SCREEN_W, gfx::SCREEN_H};
+    SDL_RenderCopy(g_renderer, g_screen, nullptr, &top);
+    if (g_bottom) {
+        SDL_UpdateTexture(g_bottom, nullptr, gfx::bottom_framebuffer() + BOTTOM_X, gfx::SCREEN_W * 4);
+        SDL_Rect bottom{BOTTOM_X, gfx::SCREEN_H, BOTTOM_W, gfx::SCREEN_H};
+        SDL_RenderCopy(g_renderer, g_bottom, nullptr, &bottom);
+    }
+    SDL_RenderPresent(g_renderer);
+}
+
 void frame_end() {
     gfx::end_frame();
     if (testing::shot_due(g_frame)) write_shot(g_frame);
-    if (g_renderer) {
-        SDL_UpdateTexture(g_screen, nullptr, gfx::framebuffer(), gfx::SCREEN_W * 4);
-        SDL_RenderClear(g_renderer);
-        SDL_Rect top{0, 0, gfx::SCREEN_W, gfx::SCREEN_H};
-        SDL_RenderCopy(g_renderer, g_screen, nullptr, &top);
-        if (g_bottom) {
-            SDL_UpdateTexture(g_bottom, nullptr, gfx::bottom_framebuffer() + BOTTOM_X, gfx::SCREEN_W * 4);
-            SDL_Rect bottom{BOTTOM_X, gfx::SCREEN_H, BOTTOM_W, gfx::SCREEN_H};
-            SDL_RenderCopy(g_renderer, g_bottom, nullptr, &bottom);
-        }
-        SDL_RenderPresent(g_renderer);
-    }
+    show();
     if (!g_opt.fast) {
         uint64_t freq = SDL_GetPerformanceFrequency();
         g_next_tick += freq / 60;
@@ -228,6 +231,11 @@ void frame_end() {
     g_frame++;
     if (g_opt.max_frames > 0 && g_frame >= (uint64_t)g_opt.max_frames) g_running = false;
     if (testing::exit_due(g_frame)) g_running = false;
+}
+
+void frame_show() {
+    gfx::end_frame();
+    show();
 }
 
 const Options& options() { return g_opt; }

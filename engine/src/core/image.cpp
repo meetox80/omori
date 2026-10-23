@@ -14,6 +14,7 @@
 #include "../platform/platform.h"
 #include "bytes.h"
 #include "fs.h"
+#include "loader.h"
 
 Image::~Image() {
     for (auto& c : chunks) {
@@ -287,6 +288,7 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
             for (int k = 0; k < 256; k++) c.palette[k] = bytes::le32(pal + k * 4);
         }
         out.chunks.push_back(c);
+        if (main_thread) loader::pump();
     }
     fs::data_close(f);
     out.ok = true;
@@ -411,6 +413,7 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     make_room(need, false);
     void* pixels = take_chunk(img->source, index);
     if (!pixels) {
+        loader::pump();
         fs::DataFile* f = fs::open_data(img->source);
         if (!f) return nullptr;
         pixels = alloc_pixels(c.rsize);
@@ -449,6 +452,16 @@ static bool over_heap(size_t need, size_t freed) {
 
 static void drop_chunks(const std::string* source);
 
+static size_t drop_entry(std::unordered_map<std::string, Entry>::iterator it) {
+    size_t bytes = it->second.img ? it->second.img->bytes : 0;
+    g_used -= bytes;
+    if (it->second.img && it->second.img->lazy) drop_chunks(&it->second.img->source);
+    delete it->second.img;
+    g_cache.erase(it);
+    g_generation++;
+    return bytes;
+}
+
 static size_t evict_one() {
     auto victim = g_cache.end();
     for (auto it = g_cache.begin(); it != g_cache.end(); ++it) {
@@ -457,12 +470,7 @@ static size_t evict_one() {
         if (victim == g_cache.end() || it->second.last < victim->second.last) victim = it;
     }
     if (victim == g_cache.end()) return 0;
-    size_t bytes = victim->second.img->bytes;
-    g_used -= bytes;
-    if (victim->second.img->lazy) drop_chunks(&victim->second.img->source);
-    delete victim->second.img;
-    g_cache.erase(victim);
-    g_generation++;
+    size_t bytes = drop_entry(victim);
     return bytes ? bytes : 1;
 }
 
@@ -927,6 +935,11 @@ void pin(const std::string& folder, const std::string& name, bool pinned) {
     get_path(key);
     auto it = g_cache.find(key);
     if (it != g_cache.end()) it->second.pinned = pinned;
+}
+
+void drop(const std::string& folder, const std::string& name) {
+    auto it = g_cache.find(resolve(folder, name, ".png"));
+    if (it != g_cache.end() && !it->second.pinned) drop_entry(it);
 }
 
 void set_budget(size_t bytes) { g_budget = bytes; }
