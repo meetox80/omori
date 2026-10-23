@@ -2,6 +2,7 @@
 
 #include <malloc.h>
 #include <rsx/rsx.h>
+#include <sys/thread.h>
 #include <sysutil/video.h>
 #include <unistd.h>
 
@@ -180,12 +181,44 @@ static uint32_t expand(Format f, const uint8_t* p, const uint32_t* pal) {
     return 0;
 }
 
+static void flush();
+
+static bool (*g_evict)() = nullptr;
+static sys_ppu_thread_t g_main_thread = 0;
+static bool g_evicting = false;
+
+void set_evict_handler(bool (*fn)()) { g_evict = fn; }
+
+static sys_ppu_thread_t self_id() {
+    sys_ppu_thread_t id = 0;
+    sysThreadGetId(&id);
+    return id;
+}
+
+static void* vram_alloc(size_t bytes) {
+    void* p = rsxMemalign(128, bytes);
+    if (p || !g_evict || g_evicting || self_id() != g_main_thread) return p;
+    g_evicting = true;
+    flush();
+    wait_idle();
+    collect_garbage();
+    p = rsxMemalign(128, bytes);
+    while (!p && g_evict()) {
+        wait_idle();
+        collect_garbage();
+        p = rsxMemalign(128, bytes);
+    }
+    g_evicting = false;
+    if (p) plat::log("low memory: freed images for %u bytes of gpu memory", (unsigned)bytes);
+    return p;
+}
+
 static bool gpu_alloc(Texture* t, int w, int h) {
     t->w = w;
     t->h = h;
     t->pitch = ((w * 4) + 63) & ~63;
     t->bytes = (size_t)t->pitch * h;
-    t->gpu = (uint8_t*)rsxMemalign(128, t->bytes);
+    t->gpu = (uint8_t*)vram_alloc(t->bytes);
     if (!t->gpu) return false;
     rsxAddressToOffset(t->gpu, &t->offset);
     return true;
@@ -403,6 +436,7 @@ static void choose_display() {
 }
 
 void init() {
+    g_main_thread = self_id();
     g_host = memalign(1024 * 1024, HOST_BYTES);
     if (rsxInit(&g_ctx, COMMAND_BYTES, HOST_BYTES, g_host) != 0 || !g_ctx) {
         plat::log("gfx: rsxInit failed");

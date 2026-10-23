@@ -55,11 +55,14 @@ void prefetch_path(const std::string& rel);
 void set_budget(size_t bytes);
 void set_compact(bool on);
 void trim();
+bool evict_lru();
+bool waiting_for_memory(const std::string& rel);
 void tick();
 void clear();
 size_t used_bytes();
 void pin(const std::string& folder, const std::string& name, bool pinned);
 bool logical_size(const std::string& folder, const std::string& name, int& w, int& h);
+bool logical_size_path(const std::string& rel, int& w, int& h);
 
 }
 

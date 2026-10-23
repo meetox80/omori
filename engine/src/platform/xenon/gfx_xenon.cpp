@@ -839,6 +839,8 @@ bool reclaim_memory() {
     return true;
 }
 
+void set_evict_handler(bool (*)()) {}
+
 double take_batch_count() {
     double n = g_batches;
     g_batches = 0;

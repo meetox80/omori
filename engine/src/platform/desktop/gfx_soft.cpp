@@ -177,6 +177,8 @@ void present() {}
 
 bool reclaim_memory() { return true; }
 
+void set_evict_handler(bool (*)()) {}
+
 const uint32_t* framebuffer() { return g_planes[0].px.data(); }
 
 const uint32_t* bottom_framebuffer() { return g_planes[(int)Surface::Bottom].px.data(); }

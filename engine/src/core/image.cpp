@@ -44,6 +44,9 @@ constexpr size_t PREFETCH_BYTES = 2u << 20;
 constexpr size_t NEIGHBOR_BYTES = 4u << 20;
 constexpr uint64_t PREFETCH_KEEP_TICKS = 600;
 constexpr uint64_t HEADER_KEEP_TICKS = 3600;
+constexpr uint64_t OOM_RETRY_TICKS = 30;
+
+static std::unordered_map<std::string, uint64_t> g_oom_retry;
 
 static uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
@@ -316,9 +319,23 @@ static Image* finish(Decoded& d) {
         ic.rsize = c.rsize;
         ic.stride = (uint16_t)c.stride;
         ic.rows = (uint16_t)c.rows;
-        ic.tex = d.lazy ? nullptr : gfx::texture_create(c.w, c.h, c.stride, c.rows, (gfx::Format)d.fmt, img->swizzled, c.pixels, c.palette);
-        if (ic.tex) img->bytes += gfx::texture_bytes(ic.tex);
+        ic.tex = nullptr;
+        if (!d.lazy) {
+            ic.tex = gfx::texture_create(c.w, c.h, c.stride, c.rows, (gfx::Format)d.fmt, img->swizzled, c.pixels, c.palette);
+            c.pixels = nullptr;
+            c.palette = nullptr;
+            if (!ic.tex) {
+                d.oom = true;
+                break;
+            }
+            img->bytes += gfx::texture_bytes(ic.tex);
+        }
         img->chunks.push_back(ic);
+    }
+    if (d.oom) {
+        free_decoded(d);
+        delete img;
+        return nullptr;
     }
     d.chunks.clear();
     return img;
@@ -326,8 +343,9 @@ static Image* finish(Decoded& d) {
 
 static Image* load_data(const std::string& rel, bool& oom) {
     Decoded d = decode_data(rel, true);
+    Image* img = finish(d);
     oom = d.oom;
-    return finish(d);
+    return img;
 }
 
 Image* load_data(const std::string& rel) {
@@ -696,7 +714,7 @@ static void pump_warm() {
             }
             plat::mutex_lock(g_mutex);
             bool known = chunk_known(job.source, job.index);
-            bool room = known || (g_chunk_bytes + job.rsize <= PREFETCH_BYTES && !over_heap(g_chunk_bytes + job.rsize, 0));
+            bool room = known || ((g_chunk_bytes == 0 || g_chunk_bytes + job.rsize <= PREFETCH_BYTES) && !over_heap(g_chunk_bytes + job.rsize, 0));
             if (!known && room) {
                 g_chunk_queue.push_back(job);
                 g_chunk_bytes += job.rsize;
@@ -762,6 +780,10 @@ static void collect_ready(const std::string* want) {
             continue;
         }
         Image* img = finish(r.second);
+        if (!img && r.second.oom) {
+            if (g_retried.insert(r.first).second) requeue.push_back(r.first);
+            continue;
+        }
         insert(r.first, img);
         if (img && img->lazy) warm_image(r.first, img);
     }
@@ -833,11 +855,18 @@ Image* get_path(const std::string& rel) {
             return it->second.img;
         }
     }
+    auto retry = g_oom_retry.find(rel);
+    if (retry != g_oom_retry.end() && retry->second > g_tick) return nullptr;
     bool oom = false;
     Image* img = load_data(rel + ".tex", oom);
     if (!img && oom) {
-        plat::log("image %s skipped: out of memory", rel.c_str());
+        if (retry == g_oom_retry.end()) plat::log("image %s skipped: out of memory", rel.c_str());
+        g_oom_retry[rel] = g_tick + OOM_RETRY_TICKS;
         return nullptr;
+    }
+    if (retry != g_oom_retry.end()) {
+        plat::log("image %s loaded after running out of memory", rel.c_str());
+        g_oom_retry.erase(retry);
     }
     insert(rel, img);
     return img;
@@ -866,10 +895,14 @@ Image* get(const std::string& folder, const std::string& name) {
 void preload(const std::string& folder, const std::string& name) { get(folder, name); }
 
 bool logical_size(const std::string& folder, const std::string& name, int& w, int& h) {
-    static std::unordered_map<std::string, std::pair<int, int>> sizes;
     w = h = 0;
     if (name.empty()) return false;
-    std::string rel = resolve(folder, name, ".png");
+    return logical_size_path(resolve(folder, name, ".png"), w, h);
+}
+
+bool logical_size_path(const std::string& rel, int& w, int& h) {
+    static std::unordered_map<std::string, std::pair<int, int>> sizes;
+    w = h = 0;
     auto it = sizes.find(rel);
     if (it == sizes.end()) {
         std::pair<int, int> wh(0, 0);
@@ -899,6 +932,8 @@ void pin(const std::string& folder, const std::string& name, bool pinned) {
 void set_budget(size_t bytes) { g_budget = bytes; }
 void set_compact(bool on) { g_compact = on; }
 void trim() { evict(0); }
+bool evict_lru() { return evict_one() != 0; }
+bool waiting_for_memory(const std::string& rel) { return g_oom_retry.count(rel) != 0; }
 void tick() {
     g_tick++;
     collect_ready(nullptr);
@@ -918,6 +953,7 @@ void clear() {
     g_generation++;
     g_warm.clear();
     g_retried.clear();
+    g_oom_retry.clear();
     drop_chunks(nullptr);
     for (auto& kv : g_cache) {
         if (!kv.second.pinned) delete kv.second.img;

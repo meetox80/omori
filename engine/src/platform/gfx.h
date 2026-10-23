@@ -91,6 +91,7 @@ void* arena_try_alloc(size_t bytes);
 double take_batch_count();
 void present();
 bool reclaim_memory();
+void set_evict_handler(bool (*fn)());
 const uint32_t* framebuffer();
 bool capture(uint32_t* out, int out_stride);
 bool capture_row(int y, int x, int w, uint32_t* out);

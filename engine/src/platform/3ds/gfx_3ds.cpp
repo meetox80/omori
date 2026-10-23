@@ -755,6 +755,8 @@ bool reclaim_memory() {
     return true;
 }
 
+void set_evict_handler(bool (*)()) {}
+
 const uint32_t* framebuffer() { return nullptr; }
 
 static uint32_t read_surface(int s, int x, int y) {

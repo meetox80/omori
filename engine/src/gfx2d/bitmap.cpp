@@ -68,7 +68,7 @@ BitmapPtr Bitmap::load(const std::string& key) {
     if (img) {
         b->lw_ = img->ow;
         b->lh_ = img->oh;
-    } else {
+    } else if (!images::waiting_for_memory(b->key_) || !images::logical_size_path(b->key_, b->lw_, b->lh_)) {
         b->missing_ = true;
     }
     return b;

@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
         g2d::release_font_atlases();
     };
     plat::set_low_memory_handler(release_caches);
+    gfx::set_evict_handler(images::evict_lru);
     audio::set_low_memory_handler(release_caches);
 #if defined(PSP)
     if (plat::heap_limit() < (32u << 20)) {
@@ -35,7 +36,7 @@ int main(int argc, char** argv) {
         images::set_budget(16u << 20);
     }
 #elif defined(__vita__)
-    images::set_budget(96u << 20);
+    images::set_budget(std::clamp<size_t>(gfx::arena_free_bytes() > (32u << 20) ? gfx::arena_free_bytes() - (32u << 20) : 0, 16u << 20, 96u << 20));
 #elif defined(__wii__)
     images::set_budget(28u << 20);
 #elif defined(__WIIU__)

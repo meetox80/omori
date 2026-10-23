@@ -124,7 +124,7 @@ static void pool_give(Pool* p, uint32_t at) {
     p->free_blocks[at] = len;
 }
 
-static void* gpu_alloc(size_t bytes) {
+static void* gpu_take(size_t bytes) {
     uint32_t need = (uint32_t)((bytes + POOL_UNIT - 1) / POOL_UNIT * POOL_UNIT);
     if (need == 0) need = POOL_UNIT;
     sceKernelWaitSema(g_pool_lock, 1, nullptr);
@@ -156,7 +156,13 @@ void* alloc(size_t bytes) { return memalign(64, bytes ? bytes : 16); }
 
 void release(void* p) { std::free(p); }
 
-size_t arena_free_bytes() { return 0; }
+size_t arena_free_bytes() {
+    sceKernelWaitSema(g_pool_lock, 1, nullptr);
+    size_t n = 0;
+    for (Pool* p : g_pools) n += p->free_bytes;
+    sceKernelSignalSema(g_pool_lock, 1);
+    return n;
+}
 
 void* arena_try_alloc(size_t) { return nullptr; }
 
@@ -475,6 +481,30 @@ static void wait_gpu() {
     collect_garbage();
 }
 
+static bool (*g_evict)() = nullptr;
+static SceUID g_main_thread = -1;
+static bool g_evicting = false;
+
+void set_evict_handler(bool (*fn)()) { g_evict = fn; }
+
+static void* gpu_alloc(size_t bytes) {
+    void* p = gpu_take(bytes);
+    if (p || !g_evict || g_evicting || sceKernelGetThreadId() != g_main_thread) return p;
+    g_evicting = true;
+    bool was = g_in_scene;
+    end_scene();
+    wait_gpu();
+    p = gpu_take(bytes);
+    while (!p && g_evict()) {
+        wait_gpu();
+        p = gpu_take(bytes);
+    }
+    if (was) begin_scene(g_target);
+    g_evicting = false;
+    if (p) plat::log("low memory: freed images for %u bytes of gpu memory", (unsigned)bytes);
+    return p;
+}
+
 static void* ring_alloc(size_t bytes, size_t align) {
     size_t at = (g_ring_used + align - 1) / align * align;
     if (at + bytes > RING_BYTES) {
@@ -670,6 +700,7 @@ static bool setup_surface(Surface s, int w, int h, SceGxmRenderTarget* rt) {
 }
 
 void init() {
+    g_main_thread = sceKernelGetThreadId();
     g_pool_lock = sceKernelCreateSema("gpupool", 0, 1, 1, nullptr);
     for (size_t mb = 112; mb >= 32; mb -= 16) {
         if (pool_add(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, mb << 20, 256 * 1024)) break;
