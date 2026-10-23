@@ -25,6 +25,16 @@ struct Vertex {
 
 struct Texture;
 
+struct BorderRect {
+    int x0, y0, x1, y1;
+};
+
+struct BorderArt {
+    const uint8_t* levels;
+    int w, h, ox, oy;
+    uint32_t back, line;
+};
+
 inline uint32_t rgba(int r, int g, int b, int a = 255) {
     return (uint32_t)(r & 255) | ((uint32_t)(g & 255) << 8) | ((uint32_t)(b & 255) << 16) | ((uint32_t)(a & 255) << 24);
 }
@@ -92,6 +102,9 @@ double take_batch_count();
 void present();
 bool reclaim_memory();
 void set_evict_handler(bool (*fn)());
+void border_canvas(float& x0, float& y0, float& x1, float& y1);
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe);
+void set_border_scroll(float x);
 const uint32_t* framebuffer();
 bool capture(uint32_t* out, int out_stride);
 bool capture_row(int y, int x, int w, uint32_t* out);

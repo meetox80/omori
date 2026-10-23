@@ -1363,6 +1363,17 @@ void end_frame() {
 
 void present() {}
 
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    x0 = 0;
+    y0 = 0;
+    x1 = (float)SCREEN_W;
+    y1 = (float)SCREEN_H;
+}
+
+bool set_border(const BorderArt* art, const BorderRect*, int, const BorderRect*, int) { return !art; }
+
+void set_border_scroll(float) {}
+
 int list_peak_bytes() { return g_peak_qw * 16; }
 
 bool reclaim_memory() {

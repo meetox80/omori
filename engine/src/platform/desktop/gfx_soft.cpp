@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,6 +34,12 @@ static int g_sx0 = 0, g_sy0 = 0, g_sx1 = SCREEN_W, g_sy1 = SCREEN_H;
 static uint32_t g_protect = 0;
 static bool g_wrap = false;
 static Stencil g_stencil = Stencil::Off;
+
+static uint32_t* g_border = nullptr;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static int g_border_scroll = 0;
 
 static const int DITHER[4][4] = {{-4, 0, -3, 1}, {2, -2, 3, -1}, {-3, 1, -4, 0}, {3, -1, 2, -2}};
 
@@ -156,14 +163,64 @@ void shutdown() {
 
 void begin_frame(uint32_t clear_color) {
     set_target(Surface::Screen);
-    std::fill(g_cur->px.begin(), g_cur->px.end(), clear_color | 0xFF000000u);
+    if (g_border) {
+        int x0 = (int)profile::OFFSET_X, y0 = (int)profile::OFFSET_Y;
+        int x1 = x0 + (int)std::lround(640 * profile::SCALE), y1 = y0 + (int)std::lround(480 * profile::SCALE);
+        for (int y = y0; y < y1; y++) std::fill(&g_cur->px[(size_t)y * g_cur->stride + x0], &g_cur->px[(size_t)y * g_cur->stride + x1], clear_color | 0xFF000000u);
+    } else {
+        std::fill(g_cur->px.begin(), g_cur->px.end(), clear_color | 0xFF000000u);
+    }
     g_protect = 0;
     g_wrap = false;
     g_stencil = Stencil::Off;
     reset_scissor();
 }
 
-void end_frame() {}
+void end_frame() {
+    if (!g_border) return;
+    Plane& p = g_planes[(int)Surface::Screen];
+    int w = border_chunk_width(g_border_tiles, 0);
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        int n = border_spans(g_border_tiles, b, (float)g_border_scroll, spans);
+        for (int i = 0; i < n; i++) {
+            int x0 = (int)spans[i].x0, x1 = std::min((int)spans[i].x1, p.w), u = (int)spans[i].u;
+            for (int y = std::max(b.y0, 0); y < std::min(b.y1, p.h); y++) {
+                const uint32_t* src = g_border + (size_t)(y - g_border_tiles.y0) * w + u - x0;
+                for (int x = std::max(x0, 0); x < x1; x++) p.px[(size_t)y * p.stride + x] = src[x];
+            }
+        }
+    }
+    for (const BorderRect& f : g_border_frame) {
+        for (int y = std::max(f.y0, 0); y < std::min(f.y1, p.h); y++) {
+            for (int x = std::max(f.x0, 0); x < std::min(f.x1, p.w); x++) p.px[(size_t)y * p.stride + x] = g_border_line;
+        }
+    }
+}
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    x0 = 0;
+    y0 = 0;
+    x1 = (float)SCREEN_W;
+    y1 = (float)SCREEN_H;
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    release(g_border);
+    g_border = nullptr;
+    g_border_bars.clear();
+    g_border_frame.clear();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 1 << 16, 0);
+    g_border = border_chunk_rgba(*art, g_border_tiles, 0);
+    if (!g_border) return false;
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = (int)std::floor(x); }
 
 int list_peak_bytes() { return 0; }
 

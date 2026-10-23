@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 
 #include <gccore.h>
 #include <malloc.h>
@@ -750,6 +751,111 @@ static void load_efb(Surface s) {
     apply_stencil(g_stencil);
 }
 
+static std::vector<Texture*> g_border;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static float g_border_scroll = 0;
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    float sx = g_wide ? 0.75f : 1.0f, left = (SCREEN_W - SCREEN_W * sx) * 0.5f;
+    x0 = -left / sx;
+    y0 = 0;
+    x1 = (SCREEN_W - left) / sx;
+    y1 = (float)SCREEN_H;
+}
+
+static Texture* border_chunk(const BorderArt& art, int k) {
+    const BorderTiles& bt = g_border_tiles;
+    int w = border_chunk_width(bt, k), h = bt.rows;
+    Texture* t = new Texture();
+    t->w = w;
+    t->h = h;
+    t->tw = (w + 3) & ~3;
+    t->th = (h + 3) & ~3;
+    t->bytes = (size_t)t->tw * t->th * 2;
+    t->data = (uint8_t*)alloc(t->bytes);
+    if (!t->data) {
+        delete t;
+        return nullptr;
+    }
+    uint16_t lut[256];
+    for (int i = 0; i < 256; i++) {
+        uint32_t c = border_mix(art, i);
+        uint32_t r = ((c & 255) * 31 + 127) / 255, g = (((c >> 8) & 255) * 63 + 127) / 255, b = (((c >> 16) & 255) * 31 + 127) / 255;
+        lut[i] = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+    std::vector<uint8_t> row((size_t)w);
+    for (int y = 0; y < t->th; y++) {
+        if (y < h) border_row(art, bt, k, y, row.data());
+        for (int x = 0; x < t->tw; x++) {
+            uint16_t v = lut[row[std::min(x, w - 1)]];
+            size_t at = ((size_t)(y >> 2) * (size_t)(t->tw >> 2) + (size_t)(x >> 2)) * 32 + (size_t)((y & 3) * 4 + (x & 3)) * 2;
+            t->data[at] = (uint8_t)(v >> 8);
+            t->data[at + 1] = (uint8_t)v;
+        }
+    }
+    t->report = t->bytes;
+    DCFlushRange(t->data, t->bytes);
+    g_invalidate = true;
+    GX_InitTexObj(&t->obj, t->data, (u16)t->tw, (u16)t->th, GX_TF_RGB565, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjLOD(&t->obj, GX_LINEAR, GX_LINEAR, 0.0f, 0.0f, 0.0f, GX_FALSE, GX_FALSE, GX_ANISO_1);
+    return t;
+}
+
+static void clear_border() {
+    for (Texture* t : g_border) texture_destroy(t);
+    g_border.clear();
+    g_border_bars.clear();
+    g_border_frame.clear();
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    clear_border();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 1024, 1);
+    for (int k = 0; k < g_border_tiles.chunks; k++) {
+        Texture* t = border_chunk(*art, k);
+        if (!t) {
+            clear_border();
+            return false;
+        }
+        g_border.push_back(t);
+    }
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = x; }
+
+static void present_border(float x0, float sx) {
+    setup_tev(Src::Replace, Term::None, 0, 0);
+    set_blend(Blend::Copy);
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0), y0 = (float)b.y0, y1 = (float)b.y1;
+        int n = border_spans(g_border_tiles, b, g_border_scroll, spans);
+        for (int i = 0; i < n; i++) {
+            const BorderSpan& p = spans[i];
+            Texture* t = g_border[p.chunk];
+            bind(t, true, false);
+            float tw = (float)t->tw, th = (float)t->th;
+            float px0 = x0 + p.x0 * sx, px1 = x0 + p.x1 * sx;
+            float u0 = p.u / tw, u1 = (p.u + p.x1 - p.x0) / tw, tv0 = v0 / th, tv1 = v1 / th;
+            Vtx q[4] = {{px0, y0, u0, tv0, 0xFFFFFFFFu}, {px1, y0, u1, tv0, 0xFFFFFFFFu}, {px1, y1, u1, tv1, 0xFFFFFFFFu}, {px0, y1, u0, tv1, 0xFFFFFFFFu}};
+            emit(q, 4, true, 0.0f);
+        }
+    }
+    setup_tev(Src::Color, Term::None, 0, 0);
+    for (const BorderRect& f : g_border_frame) {
+        float fx0 = x0 + f.x0 * sx, fx1 = x0 + f.x1 * sx, fy0 = (float)f.y0, fy1 = (float)f.y1;
+        Vtx q[4] = {{fx0, fy0, 0, 0, g_border_line}, {fx1, fy0, 0, 0, g_border_line}, {fx1, fy1, 0, 0, g_border_line}, {fx0, fy1, 0, 0, g_border_line}};
+        emit(q, 4, true, 0.0f);
+    }
+}
+
 void present() {
     if (!g_frame_pending) return;
     VIDEO_SetNextFramebuffer(g_xfb[g_xfb_index]);
@@ -791,8 +897,12 @@ void end_frame() {
     save_efb(Surface::Screen);
     if (g_wide) {
         GX_SetScissor(0, 0, SCREEN_W, SCREEN_H);
-        fill_rect(SCREEN_W, SCREEN_H, 0xFF000000u, -1.0f);
         float w = SCREEN_W * 0.75f, x0 = (SCREEN_W - w) * 0.5f;
+        if (!g_border.empty()) {
+            present_border(x0, 0.75f);
+        } else {
+            fill_rect(SCREEN_W, SCREEN_H, 0xFF000000u, -1.0f);
+        }
         Texture& t = g_surface[(int)Surface::Screen].tex;
         Vtx q[4] = {{x0, 0, 0, 0, 0xFFFFFFFFu},
                     {x0 + w, 0, (float)SCREEN_W / t.tw, 0, 0xFFFFFFFFu},

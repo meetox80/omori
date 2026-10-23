@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 
 #include <malloc.h>
 #include <psp2/display.h>
@@ -944,16 +945,88 @@ static void push_triangle(const Vtx& a, const Vtx& b, const Vtx& c) {
 static inline float nu(const Texture* t, float u) { return t ? u / (float)t->w : 0.0f; }
 static inline float nv(const Texture* t, float v) { return t ? v / (float)t->h : 0.0f; }
 
+static std::vector<Texture*> g_border;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static float g_border_scroll = 0;
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    float scale = (float)DISPLAY_H / SCREEN_H;
+    float left = (DISPLAY_W - SCREEN_W * scale) * 0.5f;
+    x0 = -left / scale;
+    y0 = 0;
+    x1 = (DISPLAY_W - left) / scale;
+    y1 = (float)SCREEN_H;
+}
+
+static void clear_border() {
+    for (Texture* t : g_border) texture_destroy(t);
+    g_border.clear();
+    g_border_bars.clear();
+    g_border_frame.clear();
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    clear_border();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 4096, 1);
+    for (int k = 0; k < g_border_tiles.chunks; k++) {
+        uint32_t* px = border_chunk_rgba(*art, g_border_tiles, k);
+        int w = border_chunk_width(g_border_tiles, k);
+        Texture* t = px ? texture_wrap(w, g_border_tiles.rows, w, px) : nullptr;
+        if (t) t->cpu = nullptr;
+        release(px);
+        if (!t) {
+            clear_border();
+            return false;
+        }
+        g_border.push_back(t);
+    }
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = x; }
+
+static void present_border(float x0, float scale, uint8_t mask) {
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0), y0 = b.y0 * scale, y1 = b.y1 * scale;
+        int n = border_spans(g_border_tiles, b, g_border_scroll, spans);
+        for (int i = 0; i < n; i++) {
+            const BorderSpan& p = spans[i];
+            Texture* t = g_border[p.chunk];
+            const float bu[5] = {(float)t->w, (float)t->h, 1.0f / t->w, 1.0f / t->h, scale};
+            float px0 = x0 + p.x0 * scale, px1 = x0 + p.x1 * scale;
+            float u0 = bu[2] * p.u, u1 = bu[2] * (p.u + p.x1 - p.x0), tv0 = bu[3] * v0, tv1 = bu[3] * v1;
+            Vtx q[4] = {{px0, y0, u0, tv0, 0xFFFFFFFFu}, {px1, y0, u1, tv0, 0xFFFFFFFFu}, {px0, y1, u0, tv1, 0xFFFFFFFFu}, {px1, y1, u1, tv1, 0xFFFFFFFFu}};
+            draw_now(PROG_PRESENT, t, nullptr, Blend::Copy, true, false, mask, false, q, 4, true, bu);
+        }
+    }
+    for (const BorderRect& f : g_border_frame) {
+        float fx0 = x0 + f.x0 * scale, fx1 = x0 + f.x1 * scale, fy0 = f.y0 * scale, fy1 = f.y1 * scale;
+        Vtx q[4] = {{fx0, fy0, 0, 0, g_border_line}, {fx1, fy0, 0, 0, g_border_line}, {fx0, fy1, 0, 0, g_border_line}, {fx1, fy1, 0, 0, g_border_line}};
+        draw_now(PROG_COLOR, nullptr, nullptr, Blend::Copy, false, false, mask, false, q, 4, true, nullptr);
+    }
+}
+
 static void present_frame() {
     DisplayBuffer& d = g_display[g_back];
     sceGxmBeginScene(g_ctx, 0, g_display_rt, nullptr, nullptr, d.sync, &d.color, nullptr);
     scene_state(DISPLAY_W, DISPLAY_H);
     apply_stencil(Stencil::Off);
     const uint8_t rgb = SCE_GXM_COLOR_MASK_R | SCE_GXM_COLOR_MASK_G | SCE_GXM_COLOR_MASK_B;
-    Vtx bg[4] = {{0, 0, 0, 0, 0xFF000000u}, {DISPLAY_W, 0, 0, 0, 0xFF000000u}, {0, DISPLAY_H, 0, 0, 0xFF000000u}, {DISPLAY_W, DISPLAY_H, 0, 0, 0xFF000000u}};
-    draw_now(PROG_COLOR, nullptr, nullptr, Blend::Copy, false, false, rgb | SCE_GXM_COLOR_MASK_A, false, bg, 4, true, nullptr);
     float scale = (float)DISPLAY_H / SCREEN_H;
     float w = SCREEN_W * scale, x0 = (DISPLAY_W - w) * 0.5f;
+    if (!g_border.empty()) {
+        present_border(x0, scale, rgb | SCE_GXM_COLOR_MASK_A);
+    } else {
+        Vtx bg[4] = {{0, 0, 0, 0, 0xFF000000u}, {DISPLAY_W, 0, 0, 0, 0xFF000000u}, {0, DISPLAY_H, 0, 0, 0xFF000000u}, {DISPLAY_W, DISPLAY_H, 0, 0, 0xFF000000u}};
+        draw_now(PROG_COLOR, nullptr, nullptr, Blend::Copy, false, false, rgb | SCE_GXM_COLOR_MASK_A, false, bg, 4, true, nullptr);
+    }
     Vtx q[4] = {{x0, 0, 0, 0, 0xFFFFFFFFu}, {x0 + w, 0, 1, 0, 0xFFFFFFFFu}, {x0, DISPLAY_H, 0, 1, 0xFFFFFFFFu}, {x0 + w, DISPLAY_H, 1, 1, 0xFFFFFFFFu}};
     const float u[5] = {(float)SCREEN_W, (float)SCREEN_H, 1.0f / SCREEN_W, 1.0f / SCREEN_H, scale};
     draw_now(PROG_PRESENT, &g_surface_tex[(int)Surface::Screen], nullptr, Blend::Copy, true, false, rgb, false, q, 4, true, u);

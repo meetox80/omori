@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../core/audio.h"
+#include "../core/border.h"
 #include "../core/fs.h"
 #include "../core/image.h"
 #include "../omori/bottom_screen.h"
@@ -446,6 +447,7 @@ void run(SceneFactory first) {
             }
             update_scene();
             ui::bottom::update();
+            border::update();
             if (plat::debug_reset() && game_objects_exist()) {
                 rpg::GameScreen& screen = game_screen();
                 screen.clear_pictures();

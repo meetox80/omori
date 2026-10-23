@@ -23,6 +23,7 @@ struct Config {
     int screen_effects_intensity = 100;
     bool filters_enabled = true;
     bool circle_confirm = false;
+    bool border = true;
 };
 
 Config& config();

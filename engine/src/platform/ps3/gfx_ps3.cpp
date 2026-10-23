@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 
 #include <malloc.h>
 #include <rsx/rsx.h>
@@ -635,6 +636,81 @@ static inline Vtx vtx(float x, float y, float u, float v, uint32_t c) {
     return o;
 }
 
+static std::vector<Texture*> g_border;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static float g_border_scroll = 0;
+
+static float present_width() { return (float)g_display_h * (4.0f / 3.0f) * ((float)g_display_w / (float)g_display_h) / g_display_aspect; }
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    float w = present_width(), sx = w / SCREEN_W, left = (g_display_w - w) * 0.5f;
+    x0 = -left / sx;
+    y0 = 0;
+    x1 = (g_display_w - left) / sx;
+    y1 = (float)SCREEN_H;
+}
+
+static void clear_border() {
+    for (Texture* t : g_border) texture_destroy(t);
+    g_border.clear();
+    g_border_bars.clear();
+    g_border_frame.clear();
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    clear_border();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 4096, 1);
+    for (int k = 0; k < g_border_tiles.chunks; k++) {
+        uint32_t* px = border_chunk_rgba(*art, g_border_tiles, k);
+        int w = border_chunk_width(g_border_tiles, k);
+        Texture* t = px ? texture_wrap(w, g_border_tiles.rows, w, px) : nullptr;
+        if (t) t->cpu = nullptr;
+        release(px);
+        if (!t) {
+            clear_border();
+            return false;
+        }
+        g_border.push_back(t);
+    }
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = x; }
+
+static void present_border(float x0, float sx, float sy, float scale) {
+    const u32 mask = GCM_COLOR_MASK_R | GCM_COLOR_MASK_G | GCM_COLOR_MASK_B;
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0), y0 = b.y0 * sy, y1 = b.y1 * sy;
+        int n = border_spans(g_border_tiles, b, g_border_scroll, spans);
+        for (int i = 0; i < n; i++) {
+            const BorderSpan& p = spans[i];
+            Texture* t = g_border[p.chunk];
+            float tw = (float)t->w, th = (float)t->h;
+            float px0 = x0 + p.x0 * sx, px1 = x0 + p.x1 * sx;
+            float u0 = p.u / tw, u1 = (p.u + p.x1 - p.x0) / tw, tv0 = v0 / th, tv1 = v1 / th;
+            Vtx q[4] = {vtx(px0, y0, u0, tv0, 0xFFFFFFFFu), vtx(px1, y0, u1, tv0, 0xFFFFFFFFu), vtx(px1, y1, u1, tv1, 0xFFFFFFFFu), vtx(px0, y1, u0, tv1, 0xFFFFFFFFu)};
+            for (Vtx& v : q) {
+                v.e[0] = tw;
+                v.e[1] = th;
+                v.e[2] = scale;
+            }
+            draw_now(PROG_PRESENT, t, nullptr, Blend::Copy, true, false, mask, q, 4, true, g_display_w, g_display_h);
+        }
+    }
+    for (const BorderRect& f : g_border_frame) {
+        float fx0 = x0 + f.x0 * sx, fx1 = x0 + f.x1 * sx, fy0 = f.y0 * sy, fy1 = f.y1 * sy;
+        Vtx q[4] = {vtx(fx0, fy0, 0, 0, g_border_line), vtx(fx1, fy0, 0, 0, g_border_line), vtx(fx1, fy1, 0, 0, g_border_line), vtx(fx0, fy1, 0, 0, g_border_line)};
+        draw_now(PROG_COLOR, nullptr, nullptr, Blend::Copy, false, false, mask, q, 4, true, g_display_w, g_display_h);
+    }
+}
+
 static void present_frame() {
     u32 color_off = g_display_offset[g_display_index];
     bind_surface(color_off, g_display_pitch, g_display_depth_offset, g_display_pitch, g_display_w, g_display_h, true);
@@ -642,12 +718,15 @@ static void present_frame() {
     rsxSetStencilTestEnable(g_ctx, GCM_FALSE);
     rsxSetAlphaTestEnable(g_ctx, GCM_FALSE);
     rsxSetColorMask(g_ctx, GCM_COLOR_MASK_R | GCM_COLOR_MASK_G | GCM_COLOR_MASK_B | GCM_COLOR_MASK_A);
-    rsxSetClearColor(g_ctx, 0xFF000000u);
-    rsxClearSurface(g_ctx, GCM_CLEAR_R | GCM_CLEAR_G | GCM_CLEAR_B | GCM_CLEAR_A);
+    if (g_border.empty()) {
+        rsxSetClearColor(g_ctx, 0xFF000000u);
+        rsxClearSurface(g_ctx, GCM_CLEAR_R | GCM_CLEAR_G | GCM_CLEAR_B | GCM_CLEAR_A);
+    }
     float h = (float)g_display_h;
-    float w = h * (4.0f / 3.0f) * ((float)g_display_w / (float)g_display_h) / g_display_aspect;
+    float w = present_width();
     float x0 = (g_display_w - w) * 0.5f;
     float scale = h / SCREEN_H;
+    if (!g_border.empty()) present_border(x0, w / SCREEN_W, scale, scale < 1.0f ? 1.0f : scale);
     Vtx q[4] = {vtx(x0, 0, 0, 0, 0xFFFFFFFFu), vtx(x0 + w, 0, 1, 0, 0xFFFFFFFFu), vtx(x0 + w, h, 1, 1, 0xFFFFFFFFu), vtx(x0, h, 0, 1, 0xFFFFFFFFu)};
     for (Vtx& v : q) {
         v.e[0] = (float)SCREEN_W;

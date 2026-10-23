@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 
 #include <3ds.h>
 #include <citro3d.h>
@@ -77,6 +78,11 @@ static int g_loc_proj = -1;
 static int g_loc_scale = -1;
 static C3D_Mtx g_proj[SURFACE_COUNT];
 static C3D_Mtx g_top_proj;
+static std::vector<Texture*> g_border;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static int g_border_scroll = 0;
 static C3D_Mtx g_bottom_proj;
 
 static Vtx* g_vtx = nullptr;
@@ -689,38 +695,136 @@ void begin_frame(uint32_t clear_color) {
     reset_scissor();
 }
 
-static void present_quad(Surface from, C3D_RenderTarget* to, const C3D_Mtx* proj, float x0, float w) {
+static void present_begin(C3D_RenderTarget* to, const C3D_Mtx* proj) {
     C3D_FrameDrawOn(to);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_loc_proj, proj);
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     apply_stencil(Stencil::Off);
-    Texture* s = &g_surface_tex[(int)from];
+    g_bound_blend = -1;
+    apply_blend(Blend::Copy, false);
+}
+
+static void present_rect(Texture* s, float u0, float v0, float x0, float y0, float w, float h) {
+    set_env(Env::Tex, 0);
     C3D_TexSetFilter(&s->tex, GPU_NEAREST, GPU_NEAREST);
     C3D_TexSetWrap(&s->tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     C3D_TexBind(0, &s->tex);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, g_loc_scale, 1.0f / s->tw, 1.0f / s->th, 1.0f, 1.0f);
-    set_env(Env::Tex, 0);
-    g_bound_blend = -1;
-    apply_blend(Blend::Copy, false);
     if (g_vtx_used + 6 > VTX_MAX) sync_gpu();
     Vtx* v = g_vtx + g_vtx_used;
-    float h = (float)SCREEN_H, u1 = x0 + w;
-    v[0] = {0, 0, x0, 0, 0xFFFFFFFFu};
-    v[1] = {w, 0, u1, 0, 0xFFFFFFFFu};
-    v[2] = {0, h, x0, h, 0xFFFFFFFFu};
-    v[3] = {0, h, x0, h, 0xFFFFFFFFu};
-    v[4] = {w, 0, u1, 0, 0xFFFFFFFFu};
-    v[5] = {w, h, u1, h, 0xFFFFFFFFu};
+    float x1 = x0 + w, y1 = y0 + h, u1 = u0 + w, v1 = v0 + h;
+    v[0] = {x0, y0, u0, v0, 0xFFFFFFFFu};
+    v[1] = {x1, y0, u1, v0, 0xFFFFFFFFu};
+    v[2] = {x0, y1, u0, v1, 0xFFFFFFFFu};
+    v[3] = {x0, y1, u0, v1, 0xFFFFFFFFu};
+    v[4] = {x1, y0, u1, v0, 0xFFFFFFFFu};
+    v[5] = {x1, y1, u1, v1, 0xFFFFFFFFu};
     C3D_DrawArrays(GPU_TRIANGLES, g_vtx_used, 6);
     g_vtx_used += 6;
 }
 
+static void present_fill(const BorderRect& r, uint32_t color) {
+    set_env(Env::Fill, 0);
+    if (g_vtx_used + 6 > VTX_MAX) sync_gpu();
+    Vtx* v = g_vtx + g_vtx_used;
+    float x0 = (float)r.x0, y0 = (float)r.y0, x1 = (float)r.x1, y1 = (float)r.y1;
+    v[0] = {x0, y0, 0, 0, color};
+    v[1] = {x1, y0, 0, 0, color};
+    v[2] = {x0, y1, 0, 0, color};
+    v[3] = {x0, y1, 0, 0, color};
+    v[4] = {x1, y0, 0, 0, color};
+    v[5] = {x1, y1, 0, 0, color};
+    C3D_DrawArrays(GPU_TRIANGLES, g_vtx_used, 6);
+    g_vtx_used += 6;
+}
+
+static void present_border() {
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        float v0 = (float)(b.y0 - g_border_tiles.y0), h = (float)(b.y1 - b.y0);
+        int n = border_spans(g_border_tiles, b, (float)g_border_scroll, spans);
+        for (int i = 0; i < n; i++) present_rect(g_border[spans[i].chunk], spans[i].u, v0, spans[i].x0, (float)b.y0, spans[i].x1 - spans[i].x0, h);
+    }
+    for (const BorderRect& f : g_border_frame) present_fill(f, g_border_line);
+}
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    x0 = 0;
+    y0 = 0;
+    x1 = (float)SCREEN_W;
+    y1 = (float)SCREEN_H;
+}
+
+static uint16_t to_565(uint32_t c) {
+    uint32_t r = ((c & 255) * 31 + 127) / 255, g = (((c >> 8) & 255) * 63 + 127) / 255, b = (((c >> 16) & 255) * 31 + 127) / 255;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+static Texture* border_chunk(const BorderArt& art, int k) {
+    const BorderTiles& bt = g_border_tiles;
+    int w = border_chunk_width(bt, k), h = bt.rows, tw = pow2(w), th = pow2(h);
+    uint16_t* data = (uint16_t*)alloc((size_t)tw * th * 2);
+    if (!data) return nullptr;
+    uint16_t lut[256];
+    for (int i = 0; i < 256; i++) lut[i] = to_565(border_mix(art, i));
+    std::vector<uint8_t> row((size_t)w);
+    for (int y = 0; y < th; y++) {
+        if (y < h) border_row(art, bt, k, y, row.data());
+        for (int x = 0; x < tw; x++) data[tiled_index(x, y, tw, th)] = lut[row[std::min(x, w - 1)]];
+    }
+    Texture* t = new Texture();
+    t->w = w;
+    t->h = h;
+    tex_setup(t, (uint32_t*)data, tw, th, GPU_RGB565);
+    t->bytes = (size_t)tw * th * 2;
+    flush_cache(data, t->bytes);
+    return t;
+}
+
+static void clear_border() {
+    for (Texture* t : g_border) texture_destroy(t);
+    g_border.clear();
+    g_border_bars.clear();
+    g_border_frame.clear();
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    clear_border();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 1024, 0);
+    for (int k = 0; k < g_border_tiles.chunks; k++) {
+        Texture* t = border_chunk(*art, k);
+        if (!t) {
+            clear_border();
+            return false;
+        }
+        g_border.push_back(t);
+    }
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = (int)std::floor(x); }
+
 void end_frame() {
     if (!g_in_frame) return;
     flush();
-    present_quad(Surface::Screen, g_top, &g_top_proj, 0.0f, (float)SCREEN_W);
-    if (g_bottom_drawn) present_quad(Surface::Bottom, g_bottom, &g_bottom_proj, (SCREEN_W - 320) / 2.0f, 320.0f);
+    present_begin(g_top, &g_top_proj);
+    Texture* screen = &g_surface_tex[(int)Surface::Screen];
+    if (!g_border.empty()) {
+        float x0 = profile::OFFSET_X, y0 = profile::OFFSET_Y, w = 640 * profile::SCALE, h = 480 * profile::SCALE;
+        present_rect(screen, x0, y0, x0, y0, w, h);
+        present_border();
+    } else {
+        present_rect(screen, 0, 0, 0, 0, (float)SCREEN_W, (float)SCREEN_H);
+    }
+    if (g_bottom_drawn) {
+        present_begin(g_bottom, &g_bottom_proj);
+        present_rect(&g_surface_tex[(int)Surface::Bottom], (SCREEN_W - 320) / 2.0f, 0, 0, 0, 320.0f, (float)SCREEN_H);
+    }
     g_bottom_drawn = false;
     flush_vertices();
     C3D_FrameEnd(GX_CMDLIST_FLUSH);

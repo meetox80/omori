@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 #include "../platform.h"
 
 #include <malloc.h>
@@ -8,6 +9,7 @@
 #include <pspkernel.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iterator>
 #include <map>
@@ -97,6 +99,11 @@ static Surface g_target = Surface::Screen;
 static uint32_t g_protect = 0;
 static bool g_wrap = false;
 static Stencil g_stencil = Stencil::Off;
+static std::vector<Texture*> g_border;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static int g_border_scroll = 0;
 static const ScePspIMatrix4 g_dither = {{-4, 0, -3, 1}, {2, -2, 3, -1}, {-3, 1, -4, 0}, {3, -1, 2, -2}};
 
 constexpr size_t ARENA_BYTES = 20u << 20;
@@ -490,7 +497,7 @@ static void flush() {
             Texture* t = g_tex;
             if (t->palette) {
                 sceGuClutMode(GU_PSM_8888, 0, 0xFF, 0);
-                sceGuClutLoad(256 / 8, t->palette);
+                sceGuClutLoad(t->psm == GU_PSM_T4 ? 2 : 256 / 8, t->palette);
             }
             sceGuTexMode(t->psm, 0, 0, t->swizzled ? 1 : 0);
             sceGuTexImage(0, t->tw, t->th, t->stride, t->pixels);
@@ -541,16 +548,113 @@ void begin_frame(uint32_t clear_color) {
     g_protect = 0;
     g_wrap = false;
     g_stencil = Stencil::Off;
-    sceGuScissor(0, 0, SCREEN_W, SCREEN_H);
     sceGuClearColor(clear_color);
-    sceGuClear(GU_COLOR_BUFFER_BIT);
+    if (!g_border.empty()) {
+        int x0 = (int)profile::OFFSET_X, y0 = (int)profile::OFFSET_Y;
+        sceGuScissor(x0, y0, (int)(640 * profile::SCALE + 0.5f), (int)(480 * profile::SCALE + 0.5f));
+        sceGuClear(GU_COLOR_BUFFER_BIT);
+    }
+    sceGuScissor(0, 0, SCREEN_W, SCREEN_H);
+    if (g_border.empty()) sceGuClear(GU_COLOR_BUFFER_BIT);
 }
+
+static void draw_border() {
+    reset_scissor();
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0);
+        int n = border_spans(g_border_tiles, b, (float)g_border_scroll, spans);
+        for (int i = 0; i < n; i++) {
+            const BorderSpan& p = spans[i];
+            sprite(g_border[p.chunk], p.u, v0, p.u + (p.x1 - p.x0), v1, p.x0, (float)b.y0, p.x1, (float)b.y1, 0xFFFFFFFFu, Blend::Copy, false);
+        }
+    }
+    for (const BorderRect& f : g_border_frame) fill((float)f.x0, (float)f.y0, (float)f.x1, (float)f.y1, g_border_line, Blend::Copy);
+    flush();
+}
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    x0 = 0;
+    y0 = 0;
+    x1 = (float)SCREEN_W;
+    y1 = (float)SCREEN_H;
+}
+
+static Texture* border_chunk(const BorderArt& art, int k) {
+    const BorderTiles& bt = g_border_tiles;
+    int w = border_chunk_width(bt, k), h = bt.rows;
+    int stride = (w + 31) & ~31, rows = (h + 7) & ~7, bw = stride / 2;
+    size_t bytes = (size_t)bw * rows;
+    uint8_t* px = (uint8_t*)alloc(bytes);
+    uint32_t* clut = (uint32_t*)alloc(16 * 4);
+    if (!px || !clut) {
+        release(px);
+        release(clut);
+        return nullptr;
+    }
+    std::memset(px, 0, bytes);
+    for (int i = 0; i < 16; i++) clut[i] = border_mix(art, i * 17);
+    uint8_t index[256];
+    for (int i = 0; i < 256; i++) index[i] = (uint8_t)((i * 15 + 127) / 255);
+    std::vector<uint8_t> row((size_t)w);
+    for (int y = 0; y < h; y++) {
+        border_row(art, bt, k, y, row.data());
+        uint8_t* block = px + (size_t)(y / 8) * (bw / 16) * 128 + (y % 8) * 16;
+        for (int x = 0; x < w; x++) {
+            int xb = x / 2;
+            block[(xb / 16) * 128 + xb % 16] |= (uint8_t)(index[row[x]] << ((x & 1) * 4));
+        }
+    }
+    Texture* t = new Texture();
+    t->w = w;
+    t->h = h;
+    t->stride = stride;
+    t->rows = rows;
+    t->tw = pow2(w);
+    t->th = pow2(h);
+    t->psm = GU_PSM_T4;
+    t->swizzled = true;
+    t->pixels = px;
+    t->palette = clut;
+    t->bytes = bytes + 64;
+    sceKernelDcacheWritebackRange(px, (unsigned int)bytes);
+    sceKernelDcacheWritebackRange(clut, 64);
+    return t;
+}
+
+static void clear_border() {
+    for (Texture* t : g_border) texture_destroy(t);
+    g_border.clear();
+    g_border_bars.clear();
+    g_border_frame.clear();
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    clear_border();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 512, 0);
+    for (int k = 0; k < g_border_tiles.chunks; k++) {
+        Texture* t = border_chunk(*art, k);
+        if (!t) {
+            clear_border();
+            return false;
+        }
+        g_border.push_back(t);
+    }
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = (int)std::floor(x); }
 
 void end_frame() {
     flush();
     if (g_target != Surface::Screen) set_target(Surface::Screen);
     if (g_stencil != Stencil::Off) set_stencil(Stencil::Off);
     if (g_protect) set_color_mask(0);
+    if (!g_border.empty()) draw_border();
     sceKernelDcacheWritebackAll();
     g_list_peak = std::max(g_list_peak, sceGuCheckList());
     sceGuFinish();

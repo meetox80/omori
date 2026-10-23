@@ -1,4 +1,5 @@
 #include "../gfx.h"
+#include "../common/border_tiles.h"
 
 #include <malloc.h>
 #include <xenos/edram.h>
@@ -730,12 +731,17 @@ static void wait_flip() {
     }
 }
 
-static void present_frame() {
-    for (int i = 0; i < SURFACES; i++) {
-        if (!g_surface[i].dirty) continue;
-        resolve(i, &g_surface[i].tex.s);
-        g_surface[i].dirty = false;
-    }
+static std::vector<Texture*> g_border;
+static BorderTiles g_border_tiles;
+static std::vector<BorderRect> g_border_bars, g_border_frame;
+static uint32_t g_border_line = 0;
+static float g_border_scroll = 0;
+
+struct PresentRect {
+    float x0, y0, w, h;
+};
+
+static PresentRect present_rect() {
     float aw = (float)g_display_w, ah = (float)g_display_h, ax = 0.0f, ay = 0.0f;
     if (g_overscan) {
         ax = (float)(g_display_w / 28);
@@ -750,8 +756,85 @@ static void present_frame() {
         w = aw;
         h = w * pixel_aspect * 0.75f;
     }
-    float x0 = ax + (aw - w) * 0.5f;
-    float y0 = ay + (ah - h) * 0.5f;
+    return {ax + (aw - w) * 0.5f, ay + (ah - h) * 0.5f, w, h};
+}
+
+void border_canvas(float& x0, float& y0, float& x1, float& y1) {
+    PresentRect r = present_rect();
+    float sx = r.w / SCREEN_W, sy = r.h / SCREEN_H;
+    x0 = -r.x0 / sx;
+    y0 = -r.y0 / sy;
+    x1 = (g_display_w - r.x0) / sx;
+    y1 = (g_display_h - r.y0) / sy;
+}
+
+static void clear_border() {
+    for (Texture* t : g_border) texture_destroy(t);
+    g_border.clear();
+    g_border_bars.clear();
+    g_border_frame.clear();
+}
+
+bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const BorderRect* frame, int nframe) {
+    clear_border();
+    if (!art) return true;
+    g_border_tiles = border_tiles(*art, bars, nbars, 4096, 1);
+    for (int k = 0; k < g_border_tiles.chunks; k++) {
+        uint32_t* px = border_chunk_rgba(*art, g_border_tiles, k);
+        int w = border_chunk_width(g_border_tiles, k);
+        Texture* t = px ? texture_wrap(w, g_border_tiles.rows, w, px) : nullptr;
+        if (t) t->cpu = nullptr;
+        release(px);
+        if (!t) {
+            clear_border();
+            return false;
+        }
+        g_border.push_back(t);
+    }
+    g_border_bars.assign(bars, bars + nbars);
+    g_border_frame.assign(frame, frame + nframe);
+    g_border_line = art->line;
+    return true;
+}
+
+void set_border_scroll(float x) { g_border_scroll = x; }
+
+static void present_border(const PresentRect& r, int y, int bh) {
+    float sx = r.w / SCREEN_W, sy = r.h / SCREEN_H;
+    BorderSpan spans[BORDER_SPANS];
+    for (const BorderRect& b : g_border_bars) {
+        float y0 = r.y0 + b.y0 * sy, y1 = r.y0 + b.y1 * sy;
+        if (y1 <= y || y0 >= y + bh) continue;
+        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0);
+        int n = border_spans(g_border_tiles, b, g_border_scroll, spans);
+        for (int i = 0; i < n; i++) {
+            const BorderSpan& p = spans[i];
+            Texture* t = g_border[p.chunk];
+            float tw = (float)t->w, th = (float)t->h;
+            set_ps_const(3, tw, th, 1.0f / tw, 1.0f / th);
+            float px0 = r.x0 + p.x0 * sx, px1 = r.x0 + p.x1 * sx;
+            float u0 = p.u / tw, u1 = (p.u + p.x1 - p.x0) / tw, tv0 = v0 / th, tv1 = v1 / th;
+            Vtx q[4] = {vtx(px0, y0, u0, tv0, 0xFFFFFFFFu), vtx(px1, y0, u1, tv0, 0xFFFFFFFFu), vtx(px1, y1, u1, tv1, 0xFFFFFFFFu), vtx(px0, y1, u0, tv1, 0xFFFFFFFFu)};
+            emit(PROG_PRESENT, false, t, true, false, nullptr, Blend::Copy, MASK_RGBA, ST_OFF, q, 4, true, g_display_w, bh, y, -1);
+        }
+    }
+    set_ps_const(3, (float)SCREEN_W, (float)SCREEN_H, 1.0f / SCREEN_W, 1.0f / SCREEN_H);
+    for (const BorderRect& f : g_border_frame) {
+        float fx0 = r.x0 + f.x0 * sx, fx1 = r.x0 + f.x1 * sx, fy0 = r.y0 + f.y0 * sy, fy1 = r.y0 + f.y1 * sy;
+        if (fy1 <= y || fy0 >= y + bh) continue;
+        Vtx q[4] = {vtx(fx0, fy0, 0, 0, g_border_line), vtx(fx1, fy0, 0, 0, g_border_line), vtx(fx1, fy1, 0, 0, g_border_line), vtx(fx0, fy1, 0, 0, g_border_line)};
+        emit(PROG_COLOR, false, nullptr, false, false, nullptr, Blend::Copy, MASK_RGBA, ST_OFF, q, 4, true, g_display_w, bh, y, -1);
+    }
+}
+
+static void present_frame() {
+    for (int i = 0; i < SURFACES; i++) {
+        if (!g_surface[i].dirty) continue;
+        resolve(i, &g_surface[i].tex.s);
+        g_surface[i].dirty = false;
+    }
+    PresentRect r = present_rect();
+    float x0 = r.x0, y0 = r.y0, w = r.w, h = r.h;
     float scale = h / SCREEN_H;
     if (scale < 1.0f) scale = 1.0f;
     set_ps_const(4, scale, 0.5f - 0.5f / scale, 0.5f, 1.0f);
@@ -762,9 +845,13 @@ static void present_frame() {
         int bh = std::min(g_band_h, g_display_h - y);
         use_layout(g_display_w, bh, g_band_pitch, 0, g_band_depth, &fb);
         Xe_SetScissor(g_xe, 1, 0, 0, g_display_w, bh);
-        Vtx black[4] = {vtx(0, (float)y, 0, 0, 0xFF000000u), vtx((float)g_display_w, (float)y, 0, 0, 0xFF000000u),
-                        vtx((float)g_display_w, (float)(y + bh), 0, 0, 0xFF000000u), vtx(0, (float)(y + bh), 0, 0, 0xFF000000u)};
-        emit(PROG_COLOR, false, nullptr, false, false, nullptr, Blend::Copy, MASK_RGBA, ST_OFF, black, 4, true, g_display_w, bh, y, -1);
+        if (!g_border.empty()) {
+            present_border(r, y, bh);
+        } else {
+            Vtx black[4] = {vtx(0, (float)y, 0, 0, 0xFF000000u), vtx((float)g_display_w, (float)y, 0, 0, 0xFF000000u),
+                            vtx((float)g_display_w, (float)(y + bh), 0, 0, 0xFF000000u), vtx(0, (float)(y + bh), 0, 0, 0xFF000000u)};
+            emit(PROG_COLOR, false, nullptr, false, false, nullptr, Blend::Copy, MASK_RGBA, ST_OFF, black, 4, true, g_display_w, bh, y, -1);
+        }
         emit(PROG_PRESENT, false, screen, true, false, nullptr, Blend::Copy, MASK_RGBA, ST_OFF, q, 4, true, g_display_w, bh, y, -1);
         XenosSurface band = fb;
         band.height = bh;

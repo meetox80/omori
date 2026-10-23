@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "../core/audio.h"
+#include "../core/border.h"
 #include "../core/fs.h"
 #include "../platform/platform.h"
 #include "data.h"
@@ -47,6 +48,7 @@ static const Field FIELDS[] = {{"alwaysDash", nullptr, &Config::always_dash},
                                {"screenEffectsIntensity", &Config::screen_effects_intensity, nullptr},
                                {"TKMFilterEnabledAll", nullptr, &Config::filters_enabled},
                                {"circleConfirm", nullptr, &Config::circle_confirm},
+                               {"border", nullptr, &Config::border},
                                {nullptr, nullptr, nullptr}};
 
 void config_load() {
@@ -75,6 +77,7 @@ void config_load() {
         }
     }
     config_apply_volumes();
+    border::set_enabled(g_config.border);
 }
 
 void config_save() {
