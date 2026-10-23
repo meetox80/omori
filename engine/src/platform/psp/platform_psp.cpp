@@ -62,11 +62,13 @@ static size_t g_heap_limit = 0;
 
 static void measure_heap() {
     std::vector<void*> blocks;
-    blocks.reserve(1024);
-    while (blocks.size() < 1024) {
-        void* b = std::malloc(64 * 1024);
-        if (!b) break;
-        blocks.push_back(b);
+    blocks.reserve(1024 + 64);
+    for (size_t size : {(size_t)64 * 1024, (size_t)4 * 1024, (size_t)256}) {
+        while (blocks.size() < blocks.capacity()) {
+            void* b = std::malloc(size);
+            if (!b) break;
+            blocks.push_back(b);
+        }
     }
     struct mallinfo mi = mallinfo();
     g_heap_limit = (size_t)mi.arena;
