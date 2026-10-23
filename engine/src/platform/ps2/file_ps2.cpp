@@ -1,7 +1,9 @@
 #include "../platform.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -11,7 +13,7 @@ constexpr size_t READ_AHEAD = 32 * 1024;
 constexpr size_t PIECE = 128 * 1024;
 
 struct Part {
-    FILE* f;
+    int fd;
     int64_t at;
     int64_t size;
 };
@@ -52,7 +54,13 @@ static size_t read_at(File* f, int64_t at, void* dst, size_t size) {
         size_t piece = (size_t)std::min<int64_t>((int64_t)std::min(PIECE, size - done), p.at + p.size - pos);
         mutex_lock(g_lock);
         size_t got = 0;
-        if (fseeko(p.f, (off_t)(pos - p.at), SEEK_SET) == 0) got = std::fread(out + done, 1, piece, p.f);
+        if (lseek(p.fd, (off_t)(pos - p.at), SEEK_SET) == (off_t)(pos - p.at)) {
+            while (got < piece) {
+                ssize_t n = read(p.fd, out + done + got, piece - got);
+                if (n <= 0) break;
+                got += (size_t)n;
+            }
+        }
         mutex_unlock(g_lock);
         done += got;
         if (got < piece) break;
@@ -83,13 +91,11 @@ static Source* open_source(const std::string& path) {
     for (int i = 0; i < 10; i++) {
         std::string name = path;
         if (i) name.replace(ext, 3, std::string(name[ext] == 'p' ? "pk" : "PK") + (char)('0' + i));
-        FILE* f = std::fopen(name.c_str(), "rb");
-        if (f && fseeko(f, 0, SEEK_END) != 0) {
-            std::fclose(f);
-            f = nullptr;
-        }
-        if (!f) break;
-        s->parts.push_back({f, s->size, (int64_t)ftello(f)});
+        int fd = open(name.c_str(), O_RDONLY);
+        off_t end = fd >= 0 ? lseek(fd, 0, SEEK_END) : -1;
+        if (fd >= 0 && end < 0) close(fd);
+        if (end < 0) break;
+        s->parts.push_back({fd, s->size, (int64_t)end});
         s->size += s->parts.back().size;
         if (ext == std::string::npos) break;
     }
@@ -168,7 +174,7 @@ void file_close(File* f) {
                 break;
             }
         }
-        for (Part& p : s->parts) std::fclose(p.f);
+        for (Part& p : s->parts) close(p.fd);
         delete s;
     }
     mutex_unlock(g_lock);
