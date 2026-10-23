@@ -5,11 +5,14 @@
 
 #define SECTOR 2048
 #define LBA_PVD 16
-#define LBA_ROOT 20
-#define LBA_CNF 21
-#define LBA_ELF 22
-#define ELF_SECTORS 8192
-#define LBA_PAK (LBA_ELF + ELF_SECTORS)
+#define LBA_ROOT 18
+#define ROOT_SECTORS 2
+#define ROOT_BYTES (ROOT_SECTORS * SECTOR)
+#define LBA_CNF (LBA_ROOT + ROOT_SECTORS)
+#define LBA_PATH 257
+#define LBA_ELF (LBA_PATH + 2)
+#define LBA_PAK 8214
+#define ELF_SECTORS (LBA_PAK - LBA_ELF)
 
 static const char CNF[] = "BOOT2 = cdrom0:\\" PS2_BOOT_NAME ";1\r\nVER = 1.08\r\nVMODE = NTSC\r\n";
 static const uint8_t STAMP[7] = {126, 1, 1, 0, 0, 0, 0};
@@ -79,21 +82,21 @@ static size_t part_name(int part, char* name) {
     if (!part) {
         memcpy(name, PS2_PAK_NAME ";1", sizeof(PS2_PAK_NAME ";1"));
     } else {
-        snprintf(name, 16, "%.*sPK%d;1", (int)(sizeof(PS2_PAK_NAME) - 4), PS2_PAK_NAME, part);
+        snprintf(name, 24, "%.*sPK%d;1", (int)(sizeof(PS2_PAK_NAME) - 4), PS2_PAK_NAME, part);
     }
     return strlen(name);
 }
 
 static void build_root(uint8_t* dir, uint32_t elf_len, uint64_t pak_len) {
-    memset(dir, 0, SECTOR);
+    memset(dir, 0, ROOT_BYTES);
     size_t pos = 0;
-    pos += dir_record(dir + pos, LBA_ROOT, SECTOR, 1, "\0", 1);
-    pos += dir_record(dir + pos, LBA_ROOT, SECTOR, 1, "\1", 1);
+    pos += dir_record(dir + pos, LBA_ROOT, ROOT_BYTES, 1, "\0", 1);
+    pos += dir_record(dir + pos, LBA_ROOT, ROOT_BYTES, 1, "\1", 1);
     int parts = pak_parts(pak_len);
     for (int i = 0; i < parts; i++) {
         uint64_t at = (uint64_t)i * PS2_PART_BYTES;
         uint64_t len = pak_len - at < PS2_PART_BYTES ? pak_len - at : PS2_PART_BYTES;
-        char name[16];
+        char name[24];
         size_t name_len = part_name(i, name);
         pos += dir_record(dir + pos, LBA_PAK + (uint32_t)(at / SECTOR), (uint32_t)len, 0, name, name_len);
     }
@@ -124,9 +127,9 @@ static void build_pvd(uint8_t* pvd, uint32_t total) {
     both16(pvd + 124, 1);
     both16(pvd + 128, SECTOR);
     both32(pvd + 132, 10);
-    le32(pvd + 140, 18);
-    be32(pvd + 148, 19);
-    dir_record(pvd + 156, LBA_ROOT, SECTOR, 1, "\0", 1);
+    le32(pvd + 140, LBA_PATH);
+    be32(pvd + 148, LBA_PATH + 1);
+    dir_record(pvd + 156, LBA_ROOT, ROOT_BYTES, 1, "\0", 1);
     pad_str(pvd + 190, 128, "");
     pad_str(pvd + 318, 128, "");
     pad_str(pvd + 446, 128, "");
@@ -146,26 +149,20 @@ int ps2_elf_check(const uint8_t* data, size_t len) {
     return data[4] == 1 && data[5] == 1 && data[18] == 8 && data[19] == 0 && len <= (size_t)ELF_SECTORS * SECTOR;
 }
 
-int ps2_iso_write_head(FILE* f, const uint8_t* elf, size_t elf_len, uint64_t* pak_at) {
-    if (!ps2_elf_check(elf, elf_len)) return 0;
-    uint8_t* head = xcalloc((size_t)LBA_ELF, SECTOR);
-    build_pvd(head + LBA_PVD * SECTOR, LBA_PAK);
-    uint8_t* term = head + 17 * SECTOR;
-    term[0] = 255;
-    memcpy(term + 1, "CD001", 5);
-    term[6] = 1;
-    uint8_t* lpt = head + 18 * SECTOR;
+static int write_files(FILE* f, const uint8_t* elf, size_t elf_len, uint64_t pak_len) {
+    uint8_t* files = xcalloc((size_t)(LBA_ELF - LBA_ROOT), SECTOR);
+    build_root(files, (uint32_t)elf_len, pak_len);
+    memcpy(files + (LBA_CNF - LBA_ROOT) * SECTOR, CNF, sizeof(CNF) - 1);
+    uint8_t* lpt = files + (LBA_PATH - LBA_ROOT) * SECTOR;
     lpt[0] = 1;
     le32(lpt + 2, LBA_ROOT);
     le16(lpt + 6, 1);
-    uint8_t* mpt = head + 19 * SECTOR;
+    uint8_t* mpt = lpt + SECTOR;
     mpt[0] = 1;
     be32(mpt + 2, LBA_ROOT);
     be16(mpt + 6, 1);
-    build_root(head + LBA_ROOT * SECTOR, (uint32_t)elf_len, 0);
-    memcpy(head + LBA_CNF * SECTOR, CNF, sizeof(CNF) - 1);
-    int ok = fwrite(head, SECTOR, LBA_ELF, f) == LBA_ELF && fwrite(elf, 1, elf_len, f) == elf_len;
-    free(head);
+    int ok = fwrite(files, SECTOR, LBA_ELF - LBA_ROOT, f) == LBA_ELF - LBA_ROOT && fwrite(elf, 1, elf_len, f) == elf_len;
+    free(files);
     uint8_t* zero = xcalloc(1, 1 << 16);
     uint64_t left = (uint64_t)ELF_SECTORS * SECTOR - elf_len;
     while (ok && left) {
@@ -174,6 +171,19 @@ int ps2_iso_write_head(FILE* f, const uint8_t* elf, size_t elf_len, uint64_t* pa
         left -= n;
     }
     free(zero);
+    return ok;
+}
+
+int ps2_iso_write_head(FILE* f, const uint8_t* elf, size_t elf_len, uint64_t* pak_at) {
+    if (!ps2_elf_check(elf, elf_len)) return 0;
+    uint8_t* head = xcalloc((size_t)LBA_ROOT, SECTOR);
+    build_pvd(head + LBA_PVD * SECTOR, LBA_PAK);
+    uint8_t* term = head + 17 * SECTOR;
+    term[0] = 255;
+    memcpy(term + 1, "CD001", 5);
+    term[6] = 1;
+    int ok = fwrite(head, SECTOR, LBA_ROOT, f) == LBA_ROOT && write_files(f, elf, elf_len, 0);
+    free(head);
     *pak_at = (uint64_t)LBA_PAK * SECTOR;
     return ok;
 }
@@ -190,42 +200,43 @@ int ps2_iso_write_tail(FILE* f, uint32_t elf_len, uint64_t pak_len) {
     uint8_t field[8];
     both32(field, total);
     if (!file_seek(f, (uint64_t)LBA_PVD * SECTOR + 80) || fwrite(field, 1, 8, f) != 8) return 0;
-    uint8_t root[SECTOR];
+    uint8_t root[ROOT_BYTES];
     build_root(root, elf_len, pak_len);
-    return file_seek(f, (uint64_t)LBA_ROOT * SECTOR) && fwrite(root, 1, SECTOR, f) == SECTOR;
+    return file_seek(f, (uint64_t)LBA_ROOT * SECTOR) && fwrite(root, 1, ROOT_BYTES, f) == ROOT_BYTES;
+}
+
+static int read_root(FILE* f, uint8_t* pvd, uint8_t* root) {
+    if (!file_seek(f, (uint64_t)LBA_PVD * SECTOR) || fread(pvd, 1, SECTOR, f) != SECTOR || pvd[0] != 1 || memcmp(pvd + 1, "CD001", 5) != 0) return 0;
+    return file_seek(f, (uint64_t)rd_le32(pvd + 158) * SECTOR) && fread(root, 1, SECTOR, f) == SECTOR;
 }
 
 int ps2_iso_is_iso(FILE* f) {
-    uint8_t pvd[8];
+    uint8_t pvd[SECTOR];
     uint8_t root[SECTOR];
-    if (!file_seek(f, (uint64_t)LBA_PVD * SECTOR) || fread(pvd, 1, 8, f) != 8 || pvd[0] != 1 || memcmp(pvd + 1, "CD001", 5) != 0) return 0;
-    if (!file_seek(f, (uint64_t)LBA_ROOT * SECTOR) || fread(root, 1, SECTOR, f) != SECTOR) return 0;
+    if (!read_root(f, pvd, root)) return 0;
     const uint8_t* pak = find_record(root, PS2_PAK_NAME ";1");
     const uint8_t* elf = find_record(root, PS2_BOOT_NAME ";1");
-    return pak && elf && rd_le32(pak + 2) == LBA_PAK && rd_le32(elf + 2) == LBA_ELF;
+    return pak && elf && rd_le32(pak + 2) == LBA_PAK && rd_le32(elf + 2) < LBA_PAK;
 }
 
 int ps2_iso_replace_elf(const char* path, const uint8_t* elf, size_t elf_len) {
     if (!ps2_elf_check(elf, elf_len)) return 0;
     FILE* f = file_open(path, "r+b");
     if (!f) return 0;
+    uint8_t pvd[SECTOR];
     uint8_t root[SECTOR];
-    int ok = ps2_iso_is_iso(f) && file_seek(f, (uint64_t)LBA_ROOT * SECTOR) && fread(root, 1, SECTOR, f) == SECTOR;
-    uint8_t* r = ok ? find_record(root, PS2_BOOT_NAME ";1") : NULL;
-    if (!r) ok = 0;
-    if (r) {
-        uint32_t old_len = rd_le32(r + 10);
-        ok = file_seek(f, (uint64_t)LBA_ELF * SECTOR) && fwrite(elf, 1, elf_len, f) == elf_len;
-        uint8_t zero[SECTOR] = {0};
-        uint64_t left = old_len > elf_len ? old_len - elf_len : 0;
-        while (ok && left) {
-            size_t n = left < SECTOR ? (size_t)left : SECTOR;
-            ok = fwrite(zero, 1, n, f) == n;
-            left -= n;
-        }
-        both32(r + 10, (uint32_t)elf_len);
-        ok = ok && file_seek(f, (uint64_t)LBA_ROOT * SECTOR) && fwrite(root, 1, SECTOR, f) == SECTOR;
+    int ok = ps2_iso_is_iso(f) && read_root(f, pvd, root);
+    uint64_t pak_len = 0;
+    for (int i = 0; ok; i++) {
+        char name[24];
+        part_name(i, name);
+        const uint8_t* r = find_record(root, name);
+        if (!r) break;
+        pak_len += rd_le32(r + 10);
     }
+    if (ok) build_pvd(pvd, rd_le32(pvd + 80));
+    ok = ok && file_seek(f, (uint64_t)LBA_PVD * SECTOR) && fwrite(pvd, 1, SECTOR, f) == SECTOR;
+    ok = ok && file_seek(f, (uint64_t)LBA_ROOT * SECTOR) && write_files(f, elf, elf_len, pak_len);
     if (fclose(f) != 0) ok = 0;
     return ok;
 }
