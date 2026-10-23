@@ -6,6 +6,7 @@
 #include "../rpg/config.h"
 #include "../rpg/data.h"
 #include "../rpg/input.h"
+#include "profile.h"
 #include "scenes.h"
 #include "ui_util.h"
 
@@ -68,6 +69,7 @@ void restore_default_config() {
     cfg.gamepad_tips = false;
     cfg.always_dash = false;
     cfg.text_skip = false;
+    cfg.circle_confirm = rpg::circle_confirm_default();
     cfg.bgm_volume = 70;
     cfg.bgs_volume = 90;
     cfg.me_volume = 90;
@@ -154,6 +156,20 @@ void WindowOmoMenuOptionsGeneral::make_options_list() {
         else option.index = general_config_value(name);
         options_list.push_back(std::move(option));
     }
+    if (profile::CONFIRM_SWAP) {
+        const Value& hints = plugin_data("optionsMenu", "buttonHints");
+        std::string confirm = data::js_string(hints["confirm"]);
+        std::string cancel = data::js_string(hints["cancel"]);
+        Option option;
+        option.name = "circleConfirm";
+        option.header = confirm + ":";
+        option.options = {input_key_code("ok"), input_key_code("escape")};
+        option.help_text = "Swap which button is " + confirm + " and which is " + cancel + ".";
+        option.spacing = 80;
+        option.index = rpg::config().circle_confirm ? 1 : 0;
+        option.icons = true;
+        options_list.push_back(std::move(option));
+    }
 }
 
 void WindowOmoMenuOptionsGeneral::draw_item(int index) {
@@ -165,7 +181,9 @@ void WindowOmoMenuOptionsGeneral::draw_item(int index) {
 void WindowOmoMenuOptionsGeneral::draw_option_segment(const Option& data, const ItemRect& rect) {
     c().draw_text(data.header, rect.x + 50, rect.y, rect.width, 24, "left");
     for (size_t i = 0; i < data.options.size(); i++) {
-        c().draw_text(data.options[i], rect.x + (100 + (i * data.spacing)), rect.y + 35, rect.width, 24, "left");
+        double x = rect.x + (100 + (i * data.spacing));
+        if (data.icons) draw_button_icon(&c(), data.options[i], x, rect.y + 35);
+        else c().draw_text(data.options[i], x, rect.y + 35, rect.width, 24, "left");
     }
 }
 
@@ -232,6 +250,7 @@ void WindowOmoMenuOptionsGeneral::process_option_command() {
     if (data.name == "textSkip") cfg.text_skip = data.index == 0;
     else if (data.name == "battleLogSpeed") cfg.battle_log_speed = data.index;
     else if (data.name == "alwaysDash") cfg.always_dash = data.index == 0;
+    else if (data.name == "circleConfirm") cfg.circle_confirm = data.index == 1;
 }
 
 void WindowOmoMenuOptionsGeneral::update_transform_hook() {

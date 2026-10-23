@@ -225,6 +225,8 @@ bool debug_reset() { return testing::reset_due(g_frame); }
 
 bool consume_resume() { return false; }
 
+bool circle_confirms() { return false; }
+
 struct Mutex {
     mutex_t m;
 };

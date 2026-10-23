@@ -7,6 +7,7 @@
 #include "../platform/gfx.h"
 #include "../js/vm.h"
 #include "../rpg/audio_manager.h"
+#include "../rpg/config.h"
 #include "../rpg/data.h"
 #include "../rpg/game.h"
 #include "../rpg/params.h"
@@ -133,17 +134,18 @@ std::string input_key_code(const std::string& input) {
 static const char* kIconType = "gamepadBlack24";
 static const double kSonyOffset = 72;
 
-static std::string nintendo_key(const std::string& key) {
+static std::string swapped_key(const std::string& key) {
     if (key == "0") return "1";
     if (key == "1") return "0";
     return key;
 }
 
-void key_icon_rects(const std::string& key, IconRect& up, IconRect& down, const std::string& type) {
+void key_icon_rects(const std::string& key, IconRect& up, IconRect& down, const std::string& type, bool physical) {
     std::string t = type.empty() ? std::string(kIconType) : type;
     const Value& data = system_lang()["InputIcons"][t.c_str()];
     const Value& rects = data["rects"];
-    std::string lookup = profile::NINTENDO_BUTTONS && t == kIconType ? nintendo_key(key) : key;
+    bool swap = t == kIconType && (profile::NINTENDO_BUTTONS || (!physical && rpg::confirm_on_circle()));
+    std::string lookup = swap ? swapped_key(key) : key;
     const Value* kk = lookup.empty() ? nullptr : rects.find(lookup.c_str());
     bool found = kk && kk->is_obj();
     auto rd = [](const Value& r, IconRect& out) {
@@ -187,6 +189,13 @@ void draw_key_icon(g2d::Bitmap* dst, const std::string& key, double x, double y,
     IconRect r = side == 0 ? up : down;
     g2d::BitmapPtr src = input_icon_bitmap();
     dst->blt(src.get(), r.x, r.y, r.w, r.h, x, y);
+}
+
+void draw_button_icon(g2d::Bitmap* dst, const std::string& key, double x, double y) {
+    IconRect up, down;
+    key_icon_rects(key, up, down, "", true);
+    g2d::BitmapPtr src = input_icon_bitmap();
+    dst->blt(src.get(), up.x, up.y, up.w, up.h, x, y);
 }
 
 }

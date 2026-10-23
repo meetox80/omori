@@ -56,6 +56,7 @@ public:
         std::string help_text;
         double spacing = 0;
         int index = 0;
+        bool icons = false;
     };
 
     void initialize();

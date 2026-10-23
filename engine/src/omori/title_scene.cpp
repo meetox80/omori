@@ -247,6 +247,7 @@ public:
         update_frame_animations();
         update_command_input();
         update_effects();
+        if (command_hints_ && hints_circle_ != rpg::confirm_on_circle()) refresh_command_hints();
         background_sprite_->origin_x += 0.5;
         background_sprite_->origin_y -= 0.5;
         if (omori_sprite_) horror_.update(*omori_sprite_);
@@ -261,6 +262,7 @@ private:
     int world_type_ = 0;
     bool command_active_ = false;
     bool options_active_ = false;
+    bool hints_circle_ = false;
     int command_index_ = 0;
     bool instant_intro_ = false;
     bool can_continue_ = false;
@@ -324,6 +326,7 @@ private:
     }
 
     void refresh_command_hints() {
+        hints_circle_ = rpg::confirm_on_circle();
         g2d::Bitmap* bitmap = command_hints_->bitmap().get();
         bitmap->clear();
         const Value& hints = menu::plugin_data("optionsMenu", "buttonHints");

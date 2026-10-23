@@ -198,6 +198,11 @@ bool debug_reset() { return testing::reset_due(g_frame); }
 
 bool consume_resume() { return false; }
 
+bool circle_confirms() {
+    s32 v = 1;
+    return sysUtilGetSystemParamInt(SYSUTIL_SYSTEMPARAM_ID_ENTER_BUTTON_ASSIGN, &v) == 0 && v == 0;
+}
+
 struct Mutex {
     sys_mutex_t m;
 };

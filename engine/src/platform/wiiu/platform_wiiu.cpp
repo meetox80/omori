@@ -334,6 +334,8 @@ bool consume_resume() {
     return true;
 }
 
+bool circle_confirms() { return false; }
+
 struct Mutex {
     OSMutex m;
 };

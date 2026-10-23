@@ -22,11 +22,14 @@ struct Config {
     bool screen_effects_enabled = true;
     int screen_effects_intensity = 100;
     bool filters_enabled = true;
+    bool circle_confirm = false;
 };
 
 Config& config();
 void config_load();
 void config_save();
 void config_apply_volumes();
+bool circle_confirm_default();
+bool confirm_on_circle();
 
 }

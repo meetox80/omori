@@ -284,6 +284,8 @@ bool debug_reset() { return testing::reset_due(g_frame); }
 
 bool consume_resume() { return false; }
 
+bool circle_confirms() { return false; }
+
 static void check_quit() {
     int id = xenon_io::thread_id();
     if (id != 0 && g_quit) longjmp(g_thread_exit[id], 1);

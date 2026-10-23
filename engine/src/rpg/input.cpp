@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "../platform/platform.h"
+#include "config.h"
 
 namespace input {
 
@@ -53,6 +54,12 @@ static int numpad(int x, int y) { return 5 - y * 3 + x; }
 
 void update() {
     uint32_t b = plat::buttons();
+    if (rpg::confirm_on_circle()) {
+        uint32_t face = b & (BTN_OK | BTN_CANCEL);
+        b ^= face;
+        if (face & BTN_OK) b |= BTN_CANCEL;
+        if (face & BTN_CANCEL) b |= BTN_OK;
+    }
     g_current[OK] = (b & BTN_OK) != 0;
     g_current[ESCAPE] = (b & (BTN_CANCEL | BTN_START)) != 0;
     g_current[SHIFT] = (b & BTN_DASH) != 0;

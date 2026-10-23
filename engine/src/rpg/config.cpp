@@ -6,7 +6,9 @@
 
 #include "../core/audio.h"
 #include "../core/fs.h"
+#include "../platform/platform.h"
 #include "data.h"
+#include "profile.h"
 
 namespace rpg {
 
@@ -15,6 +17,10 @@ static Config g_config;
 Config& config() { return g_config; }
 
 void config_apply_volumes() { audio::set_volumes(g_config.bgm_volume, g_config.bgs_volume, g_config.me_volume, g_config.se_volume); }
+
+bool circle_confirm_default() { return profile::CONFIRM_SWAP && plat::circle_confirms(); }
+
+bool confirm_on_circle() { return profile::CONFIRM_SWAP && g_config.circle_confirm; }
 
 struct Field {
     const char* name;
@@ -40,10 +46,12 @@ static const Field FIELDS[] = {{"alwaysDash", nullptr, &Config::always_dash},
                                {"screenEffectsEnabled", nullptr, &Config::screen_effects_enabled},
                                {"screenEffectsIntensity", &Config::screen_effects_intensity, nullptr},
                                {"TKMFilterEnabledAll", nullptr, &Config::filters_enabled},
+                               {"circleConfirm", nullptr, &Config::circle_confirm},
                                {nullptr, nullptr, nullptr}};
 
 void config_load() {
     g_config = Config();
+    g_config.circle_confirm = circle_confirm_default();
     g_config.filters_enabled = data::plugin_param("FilterController", "enabledAll-DefaultValue", "true") == "true";
     std::string a = data::plugin_param("Aries001_AnimationScreenEffects", "Default Option", "true");
     g_config.screen_effects_enabled = a == "true";

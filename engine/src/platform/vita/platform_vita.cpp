@@ -13,6 +13,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/power.h>
+#include <psp2/system_param.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -187,6 +188,11 @@ bool consume_resume() {
     if (!g_resumed) return false;
     g_resumed = false;
     return true;
+}
+
+bool circle_confirms() {
+    int v = SCE_SYSTEM_PARAM_ENTER_BUTTON_CROSS;
+    return sceAppUtilSystemParamGetInt(SCE_SYSTEM_PARAM_ID_ENTER_BUTTON, &v) == 0 && v == SCE_SYSTEM_PARAM_ENTER_BUTTON_CIRCLE;
 }
 
 struct Mutex {

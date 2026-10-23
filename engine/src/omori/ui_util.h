@@ -59,10 +59,11 @@ std::string input_key_code(const std::string& input);
 struct IconRect {
     double x = 0, y = 0, w = 24, h = 24;
 };
-void key_icon_rects(const std::string& key, IconRect& up, IconRect& down, const std::string& type = "");
+void key_icon_rects(const std::string& key, IconRect& up, IconRect& down, const std::string& type = "", bool physical = false);
 void draw_aligned_key_icon(g2d::Bitmap* dst, const std::string& key, double x, double y, double width, double height, const std::string& align = "center",
                            int side = 0);
 void draw_key_icon(g2d::Bitmap* dst, const std::string& key, double x, double y, int side = 0);
+void draw_button_icon(g2d::Bitmap* dst, const std::string& key, double x, double y);
 g2d::BitmapPtr input_icon_bitmap();
 
 }

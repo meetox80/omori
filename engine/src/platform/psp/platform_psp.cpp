@@ -12,6 +12,7 @@
 #include <pspkernel.h>
 #include <psppower.h>
 #include <psprtc.h>
+#include <psputility.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -198,6 +199,11 @@ bool consume_resume() {
     if (!g_resumed) return false;
     g_resumed = false;
     return true;
+}
+
+bool circle_confirms() {
+    int v = 1;
+    return sceUtilityGetSystemParamInt(PSP_SYSTEMPARAM_ID_INT_BUTTON_SWAP, &v) == PSP_SYSTEMPARAM_RETVAL_OK && v == 0;
 }
 
 struct Mutex {
