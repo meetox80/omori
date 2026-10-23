@@ -352,7 +352,7 @@ static uint64_t fnv(const char* s, size_t n) {
 }
 
 static void intern_rehash(Intern* in) {
-    size_t ns = in->nslots ? in->nslots * 2 : 1024;
+    size_t ns = in->nslots ? in->nslots * 2 : 64;
     size_t* slots = xmalloc(sizeof(size_t) * ns);
     for (size_t i = 0; i < ns; i++) slots[i] = (size_t)-1;
     for (size_t i = 0; i < in->count; i++) {
@@ -441,7 +441,7 @@ static size_t ptr_slot(const void* p, size_t n) {
 }
 
 static void memo_grow(HashMemo* m) {
-    size_t ncap = m->cap ? m->cap * 2 : 4096;
+    size_t ncap = m->cap ? m->cap * 2 : 64;
     const Node** keys = xcalloc(ncap, sizeof(Node*));
     uint64_t* hashes = xmalloc(sizeof(uint64_t) * ncap);
     for (size_t i = 0; i < m->cap; i++) {
@@ -519,7 +519,7 @@ static int node_equal(const Node* a, const Node* b) {
 }
 
 static void seen_grow(Seen* s) {
-    size_t ns = s->nslots ? s->nslots * 2 : 4096;
+    size_t ns = s->nslots ? s->nslots * 2 : 64;
     SeenEntry* slots = xcalloc(ns, sizeof(SeenEntry));
     for (size_t i = 0; i < s->nslots; i++) {
         if (!s->slots[i].node) continue;
