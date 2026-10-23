@@ -268,6 +268,12 @@ bool start(MixFn fn) {
     return true;
 }
 
+bool start_feeder(void (*fn)()) {
+    SceUID th = sceKernelCreateThread("feeder", plat::thread_entry, 0x18, 0x20000, PSP_THREAD_ATTR_USER | PSP_THREAD_ATTR_VFPU, nullptr);
+    if (th < 0) return false;
+    return sceKernelStartThread(th, sizeof(fn), &fn) >= 0;
+}
+
 void stop() {
     if (!g_run) return;
     g_run = false;

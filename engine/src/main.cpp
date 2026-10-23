@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
         images::set_budget(4u << 20);
         images::set_compact(true);
         audio::set_se_budget(384u << 10);
+        audio::set_ahead_frames(8192);
         g2d::set_font_atlas_budget(1u << 20);
     } else {
         images::set_budget(16u << 20);

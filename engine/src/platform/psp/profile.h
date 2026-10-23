@@ -21,6 +21,6 @@ constexpr bool BOTTOM_SCREEN = false;
 constexpr bool CANVAS_HEAP = false;
 constexpr size_t HEAP_RESERVE = 5u << 20;
 constexpr int AUDIO_RATE = 44100;
-constexpr int AUDIO_AHEAD = 0;
+constexpr int AUDIO_AHEAD = 32768;
 
 }

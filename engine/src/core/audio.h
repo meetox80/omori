@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 
 namespace audio {
@@ -69,6 +70,7 @@ void stop_all();
 void on_resume();
 void release_memory();
 void set_se_budget(size_t bytes);
+void set_ahead_frames(uint32_t frames);
 void set_low_memory_handler(void (*fn)());
 double take_mix_stats(double& max_us, int& starved);
 void write_dump(const std::string& path);

@@ -46,7 +46,26 @@ static long decode(OggVorbis_File* vf, char* buf, int len) {
 #ifdef USE_TREMOR
     return ov_read(vf, buf, len, &bs);
 #else
-    return ov_read(vf, buf, len, bytes::BIG_HOST ? 1 : 0, 2, 1, &bs);
+    vorbis_info* vi = ov_info(vf, -1);
+    int ch = vi ? vi->channels : 2;
+    float** pcm = nullptr;
+    long n = ov_read_float(vf, &pcm, len / (2 * ch), &bs);
+    if (n <= 0) return n;
+    vi = ov_info(vf, -1);
+    if (vi && vi->channels != ch) {
+        ch = vi->channels;
+        n = std::min<long>(n, len / (2 * ch));
+    }
+    int16_t* out = (int16_t*)buf;
+    for (int c = 0; c < ch; c++) {
+        const float* src = pcm[c];
+        int16_t* dst = out + c;
+        for (long i = 0; i < n; i++) {
+            float v = std::clamp(src[i] * 32768.0f, -32768.0f, 32767.0f);
+            dst[i * ch] = (int16_t)(v < 0.0f ? v - 0.5f : v + 0.5f);
+        }
+    }
+    return n * 2 * ch;
 #endif
 }
 
@@ -500,6 +519,7 @@ constexpr uint32_t FEED_LOW = FEED_CHUNK * 4;
 static plat::Mutex* g_feed_mutex = nullptr;
 static std::vector<std::shared_ptr<Stream>> g_feeds;
 static bool g_feeding = false;
+static uint32_t g_ahead = profile::AUDIO_AHEAD;
 
 static uint32_t ring_take(Stream* s, int16_t* out, uint32_t max) {
     uint32_t tail = s->tail.load(std::memory_order_relaxed);
@@ -556,8 +576,8 @@ static void feeder() {
 static void prepare_ahead(Stream* s) {
     if (!g_feeding || !s) return;
     try {
-        s->ring.assign((size_t)profile::AUDIO_AHEAD * 2, 0);
-        s->ring_mask = (uint32_t)profile::AUDIO_AHEAD - 1;
+        s->ring.assign((size_t)g_ahead * 2, 0);
+        s->ring_mask = g_ahead - 1;
     } catch (const std::bad_alloc&) {
         s->ring.clear();
         s->ring.shrink_to_fit();
@@ -1443,6 +1463,11 @@ static void collect_loads() {
 }
 
 void set_se_budget(size_t bytes) { g_se_budget = bytes; }
+void set_ahead_frames(uint32_t frames) {
+    uint32_t n = profile::AUDIO_AHEAD;
+    while (n > frames && n > FEED_CHUNK * 2) n >>= 1;
+    g_ahead = n;
+}
 void set_low_memory_handler(void (*fn)()) { g_relieve = fn; }
 
 void release_memory() {
