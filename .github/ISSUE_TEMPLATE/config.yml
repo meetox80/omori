@@ -6,3 +6,6 @@ contact_links:
   - name: Buy OMORI on Steam
     url: https://store.steampowered.com/app/1150690/OMORI/
     about: The port needs your own copy of OMORI 1.0.8.
+  - name: Suggest something
+    url: https://github.com/meetox80/omori/discussions/new?category=suggestions
+    about: Ideas for the port go in Discussions, where others can upvote them.
