@@ -183,7 +183,6 @@ static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* d
 }
 
 static void make_room(size_t need, bool force);
-static void* alloc_pixels(size_t bytes);
 
 static Decoded decode_data(const std::string& rel, bool main_thread) {
     Decoded out;
@@ -497,7 +496,7 @@ static void make_room(size_t need, bool force) {
     gfx::reclaim_memory();
 }
 
-static void* alloc_pixels(size_t bytes) {
+void* alloc_pixels(size_t bytes) {
     void* p = gfx::alloc(bytes);
     if (p) return p;
     drop_chunks(nullptr);

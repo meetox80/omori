@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 
 #include "../platform/gfx.h"
 #include "../platform/platform.h"
@@ -19,8 +20,16 @@ Canvas::Canvas(int w, int h) : lw(std::max(1, w)), lh(std::max(1, h)) {
     stride = (pw + 15) & ~15;
     size_t bytes = (size_t)stride * ph * 4;
     px = profile::CANVAS_HEAP ? (uint32_t*)std::malloc(bytes) : nullptr;
-    if (!px) px = (uint32_t*)gfx::alloc(bytes);
-    if (px) std::memset(px, 0, bytes);
+    if (!px) px = (uint32_t*)images::alloc_pixels(bytes);
+    if (!px) {
+        plat::log("canvas %dx%d skipped: out of memory", pw, ph);
+        pw = ph = 1;
+        stride = 16;
+        bytes = (size_t)stride * 4;
+        px = (uint32_t*)images::alloc_pixels(bytes);
+        if (!px) throw std::bad_alloc();
+    }
+    std::memset(px, 0, bytes);
     img.ow = lw;
     img.oh = lh;
     img.w = pw;
@@ -677,8 +686,8 @@ void Bitmap::blur() {
     Canvas& c = *canvas_;
     int w = c.pw, h = c.ph;
     if (w <= 0 || h <= 0) return;
-    uint32_t* rb = (uint32_t*)gfx::alloc((size_t)w * h * 4);
-    uint32_t* g = (uint32_t*)gfx::alloc((size_t)w * h * 4);
+    uint32_t* rb = (uint32_t*)images::alloc_pixels((size_t)w * h * 4);
+    uint32_t* g = (uint32_t*)images::alloc_pixels((size_t)w * h * 4);
     if (!rb || !g) {
         gfx::release(rb);
         gfx::release(g);

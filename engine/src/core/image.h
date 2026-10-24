@@ -49,6 +49,7 @@ Image* get_path_cached(const std::string& rel, CacheHandle& handle);
 uint64_t generation();
 void forget_recent();
 void release_memory();
+void* alloc_pixels(size_t bytes);
 void preload(const std::string& folder, const std::string& name);
 void prefetch(const std::string& folder, const std::string& name);
 void prefetch_path(const std::string& rel);
