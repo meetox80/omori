@@ -10,6 +10,7 @@ struct ImageChunk {
     gfx::Texture* tex;
     uint32_t offset, csize, rsize;
     uint16_t stride, rows;
+    uint16_t src_stride, src_rows, sx, sy;
 };
 
 struct Image {

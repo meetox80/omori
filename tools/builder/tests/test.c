@@ -418,6 +418,79 @@ static void test_face_chunks(void) {
     img_free(face);
 }
 
+static void test_t8_alt(void) {
+    int w = 640, h = 480;
+    Image* img = img_new(w, h);
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            uint8_t* p = img->px + ((size_t)y * w + x) * 4;
+            int k = (x / 8 + y / 8) % 37;
+            if (!k) continue;
+            p[3] = (uint8_t)(k % 3 ? 255 : 128);
+            p[0] = (uint8_t)(k * 6 * p[3] / 255);
+            p[1] = (uint8_t)((255 - k * 5) * p[3] / 255);
+            p[2] = (uint8_t)((k * 97 % 256) * p[3] / 255);
+        }
+    }
+    const Target* keep = g_target;
+    for (int id = 0; id < TARGET_COUNT; id++) {
+        const Target* t = target_get((TargetId)id);
+        target_set(t);
+        Buf out = {0};
+        CHECK(tex_encode(img, w, h, &out));
+        int n = rd16(out.data + 16);
+        CHECK(!(out.data[6] & 32) == (t->layout != TEX_PSP));
+        if (t->layout != TEX_PSP) {
+            buf_free(&out);
+            continue;
+        }
+        const uint8_t* table = out.data + 20;
+        for (int k = 0; k < n; k++) {
+            const uint8_t* e = table + (size_t)k * 24;
+            uint32_t main_raw = rd32(e + 20);
+            uint8_t* raw = xmalloc(main_raw);
+            mz_ulong rl = main_raw;
+            CHECK(mz_uncompress(raw, &rl, out.data + rd32(e + 12), rd32(e + 16)) == MZ_OK && rl == main_raw);
+            free(raw);
+        }
+        const uint8_t* alt = out.data + rd32(table + (size_t)n * 24);
+        int na = rd16(alt);
+        const uint8_t* pal = alt + 4;
+        const uint8_t* alt_table = pal + 1024;
+        CHECK(na == ((w + 255) / 256) * ((h + 255) / 256));
+        size_t covered = 0;
+        int ok = 1;
+        for (int k = 0; k < na && ok; k++) {
+            const uint8_t* a = alt_table + (size_t)k * 24;
+            int cx = rd16(a), cy = rd16(a + 2), cw = rd16(a + 4), ch = rd16(a + 6), stride = rd16(a + 8), rows = rd16(a + 10);
+            uint32_t rsize = rd32(a + 20);
+            CHECK(cw <= 256 && ch <= 256 && stride % 16 == 0 && rows % 8 == 0 && rsize == (uint32_t)stride * (uint32_t)rows);
+            covered += (size_t)cw * (size_t)ch;
+            uint8_t* ix = xmalloc(rsize);
+            mz_ulong rl = rsize;
+            CHECK(mz_uncompress(ix, &rl, out.data + rd32(a + 12), rd32(a + 16)) == MZ_OK && rl == rsize);
+            for (int y = 0; y < ch && ok; y++) {
+                for (int x = 0; x < cw && ok; x++) {
+                    uint8_t i = ix[((size_t)(y / 8) * (size_t)(stride / 16) + (size_t)(x / 16)) * 128 + (size_t)(y % 8) * 16 + (size_t)(x % 16)];
+                    if (memcmp(pal + (size_t)i * 4, img->px + ((size_t)(cy + y) * w + cx + x) * 4, 4)) ok = 0;
+                }
+            }
+            free(ix);
+        }
+        CHECK(ok && covered == (size_t)w * (size_t)h);
+        buf_free(&out);
+    }
+    target_set(target_get(TARGET_PSP));
+    Image* small = img_crop(img, 0, 0, 64, 64);
+    Buf out = {0};
+    CHECK(tex_encode(small, 64, 64, &out));
+    CHECK(!(out.data[6] & 32));
+    buf_free(&out);
+    img_free(small);
+    target_set(keep);
+    img_free(img);
+}
+
 static void test_3dsx_pack(void) {
     Buf in = {0};
     buf_put(&in, "3DSX", 4);
@@ -911,6 +984,7 @@ int main(void) {
     test_crypto();
     test_layouts();
     test_face_chunks();
+    test_t8_alt();
     test_3dsx_pack();
     test_json_vbin();
     test_scripts();

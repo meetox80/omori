@@ -486,6 +486,233 @@ static void screen_frames(const Image* pm, int orig_w, int orig_h, int* bw, int*
     *bh = fh;
 }
 
+#define T8_MIN_BYTES (512u << 10)
+#define T8_ROUNDS 6
+#define T8_CHUNK 256
+
+typedef struct {
+    uint32_t c;
+    uint32_t n;
+} Tally;
+
+typedef struct {
+    int lo, hi, axis, range;
+} TallyBox;
+
+static const uint8_t BAYER[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+
+static int dither_q(int v, int max, int d) { return (v * max * 32 + (2 * d + 1) * 255) / (255 * 32); }
+
+static int imin(int a, int b) { return a < b ? a : b; }
+
+static uint64_t packed_error(const Image* pm, int mode) {
+    uint64_t err = 0;
+    for (int y = 0; y < pm->h; y++) {
+        for (int x = 0; x < pm->w; x++) {
+            const uint8_t* s = pm->px + ((size_t)y * pm->w + x) * 4;
+            int d = BAYER[((y & 3) << 2) | (x & 3)];
+            int r = s[0], g = s[1], b = s[2], a = s[3], o[4];
+            if (mode == 0) {
+                int r5 = dither_q(r, 31, d), g6 = dither_q(g, 63, d), b5 = dither_q(b, 31, d);
+                o[0] = (r5 << 3) | (r5 >> 2);
+                o[1] = (g6 << 2) | (g6 >> 4);
+                o[2] = (b5 << 3) | (b5 >> 2);
+                o[3] = 255;
+            } else if (mode == 1) {
+                if (a * 32 <= (2 * d + 1) * 255) {
+                    o[0] = o[1] = o[2] = o[3] = 0;
+                } else {
+                    if (a < 255) {
+                        r = imin(255, r * 255 / a);
+                        g = imin(255, g * 255 / a);
+                        b = imin(255, b * 255 / a);
+                    }
+                    int r5 = dither_q(r, 31, d), g5 = dither_q(g, 31, d), b5 = dither_q(b, 31, d);
+                    o[0] = (r5 << 3) | (r5 >> 2);
+                    o[1] = (g5 << 3) | (g5 >> 2);
+                    o[2] = (b5 << 3) | (b5 >> 2);
+                    o[3] = 255;
+                }
+            } else {
+                int a4 = (a * 15 + 127) / 255;
+                o[0] = imin(dither_q(r, 15, d), a4) * 17;
+                o[1] = imin(dither_q(g, 15, d), a4) * 17;
+                o[2] = imin(dither_q(b, 15, d), a4) * 17;
+                o[3] = a4 * 17;
+            }
+            for (int c = 0; c < 4; c++) {
+                int e = o[c] - s[c];
+                err += (uint64_t)(e * e);
+            }
+        }
+    }
+    return err;
+}
+
+static int nearest_entry(const int* pal, int count, uint32_t c) {
+    int r = (int)(c & 255), g = (int)((c >> 8) & 255), b = (int)((c >> 16) & 255), a = (int)(c >> 24);
+    int best = 0, best_d = 0x7FFFFFFF;
+    for (int i = 0; i < count; i++) {
+        const int* p = pal + i * 4;
+        int dr = r - p[0], dg = g - p[1], db = b - p[2], da = a - p[3];
+        int d = dr * dr + dg * dg + db * db + da * da;
+        if (d < best_d) {
+            best_d = d;
+            best = i;
+            if (!d) break;
+        }
+    }
+    return best;
+}
+
+static void box_measure(const Tally* t, TallyBox* b) {
+    int lo[4] = {255, 255, 255, 255}, hi[4] = {0, 0, 0, 0};
+    for (int i = b->lo; i < b->hi; i++) {
+        for (int ch = 0; ch < 4; ch++) {
+            int v = (int)((t[i].c >> (ch * 8)) & 255);
+            if (v < lo[ch]) lo[ch] = v;
+            if (v > hi[ch]) hi[ch] = v;
+        }
+    }
+    b->axis = 0;
+    b->range = -1;
+    for (int ch = 0; ch < 4; ch++) {
+        if (hi[ch] - lo[ch] > b->range) {
+            b->range = hi[ch] - lo[ch];
+            b->axis = ch;
+        }
+    }
+    if (b->hi - b->lo < 2) b->range = -1;
+}
+
+static void sort_channel(Tally* t, Tally* tmp, int lo, int hi, int ch) {
+    size_t pos[257] = {0};
+    for (int i = lo; i < hi; i++) pos[((t[i].c >> (ch * 8)) & 255) + 1]++;
+    for (int v = 0; v < 256; v++) pos[v + 1] += pos[v];
+    for (int i = lo; i < hi; i++) tmp[pos[(t[i].c >> (ch * 8)) & 255]++] = t[i];
+    memcpy(t + lo, tmp, sizeof(Tally) * (size_t)(hi - lo));
+}
+
+static int cmp_u32(const void* a, const void* b);
+
+static uint8_t* t8_indices(const Image* pm, int mode, uint32_t* pal_out) {
+    size_t n = (size_t)pm->w * pm->h;
+    uint32_t* all = xmalloc(n * sizeof(uint32_t));
+    for (size_t i = 0; i < n; i++) {
+        const uint8_t* p = pm->px + i * 4;
+        all[i] = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+    }
+    qsort(all, n, sizeof(uint32_t), cmp_u32);
+    Tally* tally = xmalloc(n * sizeof(Tally));
+    int m = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (m && tally[m - 1].c == all[i]) tally[m - 1].n++;
+        else tally[m++] = (Tally){all[i], 1};
+    }
+    free(all);
+    int pal[256 * 4];
+    int count = 0;
+    if (m <= 256) {
+        for (int i = 0; i < m; i++) {
+            for (int ch = 0; ch < 4; ch++) pal[count * 4 + ch] = (int)((tally[i].c >> (ch * 8)) & 255);
+            count++;
+        }
+    } else {
+        int fixed = tally[0].c == 0;
+        if (fixed) {
+            pal[0] = pal[1] = pal[2] = pal[3] = 0;
+            count = 1;
+        }
+        int lo = fixed, want = 256 - fixed;
+        Tally* work = xmalloc(sizeof(Tally) * (size_t)m);
+        Tally* tmp = xmalloc(sizeof(Tally) * (size_t)m);
+        memcpy(work, tally, sizeof(Tally) * (size_t)m);
+        TallyBox boxes[256];
+        boxes[0] = (TallyBox){lo, m, 0, 0};
+        box_measure(work, &boxes[0]);
+        int nb = 1;
+        while (nb < want) {
+            int pick = -1;
+            for (int k = 0; k < nb; k++) {
+                if (boxes[k].range > 0 && (pick < 0 || boxes[k].range > boxes[pick].range)) pick = k;
+            }
+            if (pick < 0) break;
+            TallyBox b = boxes[pick];
+            sort_channel(work, tmp, b.lo, b.hi, b.axis);
+            uint64_t total = 0, acc = 0;
+            for (int i = b.lo; i < b.hi; i++) total += work[i].n;
+            int mid = b.lo + 1;
+            for (int i = b.lo; i < b.hi - 1; i++) {
+                acc += work[i].n;
+                mid = i + 1;
+                if (acc * 2 >= total) break;
+            }
+            boxes[pick] = (TallyBox){b.lo, mid, 0, 0};
+            boxes[nb] = (TallyBox){mid, b.hi, 0, 0};
+            box_measure(work, &boxes[pick]);
+            box_measure(work, &boxes[nb]);
+            nb++;
+        }
+        for (int k = 0; k < nb; k++) {
+            uint64_t sum[4] = {0, 0, 0, 0}, w = 0;
+            for (int i = boxes[k].lo; i < boxes[k].hi; i++) {
+                for (int ch = 0; ch < 4; ch++) sum[ch] += (uint64_t)((work[i].c >> (ch * 8)) & 255) * work[i].n;
+                w += work[i].n;
+            }
+            for (int ch = 0; ch < 4; ch++) pal[count * 4 + ch] = (int)((sum[ch] + w / 2) / w);
+            count++;
+        }
+        free(work);
+        free(tmp);
+        uint64_t (*sums)[5] = xmalloc(sizeof(uint64_t[5]) * 256);
+        for (int round = 0; round < T8_ROUNDS; round++) {
+            memset(sums, 0, sizeof(uint64_t[5]) * 256);
+            for (int i = lo; i < m; i++) {
+                int k = nearest_entry(pal, count, tally[i].c);
+                for (int ch = 0; ch < 4; ch++) sums[k][ch] += (uint64_t)((tally[i].c >> (ch * 8)) & 255) * tally[i].n;
+                sums[k][4] += tally[i].n;
+            }
+            for (int k = fixed; k < count; k++) {
+                if (!sums[k][4]) continue;
+                for (int ch = 0; ch < 4; ch++) pal[k * 4 + ch] = (int)((sums[k][ch] + sums[k][4] / 2) / sums[k][4]);
+            }
+        }
+        free(sums);
+    }
+    uint8_t* map = xmalloc((size_t)m);
+    uint64_t err = 0;
+    for (int i = 0; i < m; i++) {
+        int k = nearest_entry(pal, count, tally[i].c);
+        map[i] = (uint8_t)k;
+        for (int ch = 0; ch < 4; ch++) {
+            int e = (int)((tally[i].c >> (ch * 8)) & 255) - pal[k * 4 + ch];
+            err += (uint64_t)(e * e) * tally[i].n;
+        }
+    }
+    uint8_t* idx = NULL;
+    if (err <= packed_error(pm, mode)) {
+        idx = xmalloc(n);
+        for (size_t i = 0; i < n; i++) {
+            const uint8_t* p = pm->px + i * 4;
+            uint32_t c = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+            int lo = 0, hi = m - 1;
+            while (lo < hi) {
+                int mid = (lo + hi) / 2;
+                if (tally[mid].c < c) lo = mid + 1;
+                else hi = mid;
+            }
+            idx[i] = map[lo];
+        }
+        for (int k = 0; k < 256; k++) {
+            pal_out[k] = k < count ? (uint32_t)pal[k * 4] | (uint32_t)pal[k * 4 + 1] << 8 | (uint32_t)pal[k * 4 + 2] << 16 | (uint32_t)pal[k * 4 + 3] << 24
+                                   : 0;
+        }
+    }
+    free(map);
+    free(tally);
+    return idx;
+}
+
 static int tex_encode_blocks(const Image* pm, int orig_w, int orig_h, int bw, int bh, Buf* out) {
     int ws[64], hs[64];
     int nw = split_sizes(pm->w, bw, ws);
@@ -547,11 +774,50 @@ static int tex_encode_blocks(const Image* pm, int orig_w, int orig_h, int bw, in
         if (a >= 8 && a <= 247) soft++;
     }
     int edged = !opaque && !hard && soft * 100 <= visible * 15;
+    size_t packed_bytes = 0;
+    for (int k = 0; k < nchunks; k++) packed_bytes += chunks[k].raw_len / 2;
+    uint32_t pal[256];
+    uint8_t* idx = g_target->layout == TEX_PSP && packed_bytes >= T8_MIN_BYTES ? t8_indices(pm, opaque ? 0 : (hard || edged) ? 1 : 2, pal) : NULL;
+    Chunk* alt = NULL;
+    int nalt = 0;
+    if (idx) {
+        int nx = (pm->w + T8_CHUNK - 1) / T8_CHUNK, ny = (pm->h + T8_CHUNK - 1) / T8_CHUNK;
+        nalt = nx * ny;
+        alt = xcalloc((size_t)nalt, sizeof(Chunk));
+        for (int k = 0; k < nalt && alt; k++) {
+            Chunk* ch = &alt[k];
+            ch->x = (k % nx) * T8_CHUNK;
+            ch->y = (k / nx) * T8_CHUNK;
+            ch->pw = imin(T8_CHUNK, pm->w - ch->x);
+            ch->ph = imin(T8_CHUNK, pm->h - ch->y);
+            chunk_extent(ch->pw, ch->ph, &ch->stride, &ch->rows);
+            ch->raw_len = (uint32_t)ch->stride * (uint32_t)ch->rows;
+            uint8_t* raw = xmalloc(ch->raw_len);
+            for (int r = 0; r < ch->rows; r++) {
+                int sy = ch->y + (r < ch->ph ? r : ch->ph - 1);
+                for (int c = 0; c < ch->stride; c++) {
+                    int sx = ch->x + (c < ch->pw ? c : ch->pw - 1);
+                    raw[((size_t)(r / 8) * (size_t)(ch->stride / 16) + (size_t)(c / 16)) * 128 + (size_t)(r % 8) * 16 + (size_t)(c % 16)] = idx[(size_t)sy * pm->w + sx];
+                }
+            }
+            mz_ulong clen = mz_compressBound((mz_ulong)ch->raw_len);
+            buf_reserve(&ch->comp, clen);
+            if (mz_compress2(ch->comp.data, &clen, raw, (mz_ulong)ch->raw_len, 6) == MZ_OK) {
+                ch->comp.len = clen;
+            } else {
+                for (int j = 0; j < nalt; j++) buf_free(&alt[j].comp);
+                free(alt);
+                alt = NULL;
+            }
+            free(raw);
+        }
+        free(idx);
+    }
     size_t start = out->len;
     buf_put(out, "TTEX", 4);
     buf_u8(out, (uint8_t)(g_target->layout == TEX_PICA ? 2 : 1));
     buf_u8(out, 0);
-    buf_u8(out, (uint8_t)((g_target->layout == TEX_LINEAR ? 0 : 1) | (opaque ? 4 : 0) | (hard ? 8 : 0) | (edged ? 16 : 0)));
+    buf_u8(out, (uint8_t)((g_target->layout == TEX_LINEAR ? 0 : 1) | (opaque ? 4 : 0) | (hard ? 8 : 0) | (edged ? 16 : 0) | (alt ? 32 : 0)));
     buf_u8(out, 0);
     buf_u16(out, (uint16_t)pm->w);
     buf_u16(out, (uint16_t)pm->h);
@@ -559,7 +825,7 @@ static int tex_encode_blocks(const Image* pm, int orig_w, int orig_h, int bw, in
     buf_u16(out, (uint16_t)orig_h);
     buf_u16(out, (uint16_t)nchunks);
     buf_u16(out, 0);
-    uint32_t offset = (uint32_t)(out->len - start) + (uint32_t)nchunks * 24;
+    uint32_t offset = (uint32_t)(out->len - start) + (uint32_t)nchunks * 24 + (alt ? 4 : 0);
     for (int k = 0; k < nchunks; k++) {
         Chunk* ch = &chunks[k];
         buf_u16(out, (uint16_t)ch->x);
@@ -573,9 +839,34 @@ static int tex_encode_blocks(const Image* pm, int orig_w, int orig_h, int bw, in
         buf_u32(out, ch->raw_len);
         offset += (uint32_t)ch->comp.len;
     }
+    if (alt) buf_u32(out, offset);
     for (int k = 0; k < nchunks; k++) {
         buf_put(out, chunks[k].comp.data, chunks[k].comp.len);
         buf_free(&chunks[k].comp);
+    }
+    if (alt) {
+        buf_u16(out, (uint16_t)nalt);
+        buf_u16(out, 0);
+        for (int k = 0; k < 256; k++) buf_u32(out, pal[k]);
+        uint32_t at = offset + 4 + 1024 + (uint32_t)nalt * 24;
+        for (int k = 0; k < nalt; k++) {
+            Chunk* ch = &alt[k];
+            buf_u16(out, (uint16_t)ch->x);
+            buf_u16(out, (uint16_t)ch->y);
+            buf_u16(out, (uint16_t)ch->pw);
+            buf_u16(out, (uint16_t)ch->ph);
+            buf_u16(out, (uint16_t)ch->stride);
+            buf_u16(out, (uint16_t)ch->rows);
+            buf_u32(out, at);
+            buf_u32(out, (uint32_t)ch->comp.len);
+            buf_u32(out, ch->raw_len);
+            at += (uint32_t)ch->comp.len;
+        }
+        for (int k = 0; k < nalt; k++) {
+            buf_put(out, alt[k].comp.data, alt[k].comp.len);
+            buf_free(&alt[k].comp);
+        }
+        free(alt);
     }
     free(chunks);
     return 1;

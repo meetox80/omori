@@ -46,6 +46,8 @@ constexpr size_t NEIGHBOR_BYTES = 4u << 20;
 constexpr uint64_t PREFETCH_KEEP_TICKS = 600;
 constexpr uint64_t HEADER_KEEP_TICKS = 3600;
 constexpr uint64_t OOM_RETRY_TICKS = 30;
+constexpr uint32_t SPLIT_BYTES = 256u << 10;
+constexpr int SPLIT_SIZE = 256;
 
 static std::unordered_map<std::string, uint64_t> g_oom_retry;
 
@@ -55,6 +57,7 @@ static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | ((uint32_t)p[1]
 struct Decoded {
     struct Chunk {
         int x, y, w, h, stride, rows;
+        int src_stride, src_rows, sx, sy;
         void* pixels;
         uint32_t* palette;
         uint32_t offset, csize, rsize;
@@ -81,6 +84,8 @@ static void free_decoded(Decoded& d) {
 struct Pack {
     int fmt = -1;
     int stride = 0;
+    int rows = 0;
+    int src_stride = 0, src_rows = 0, sx = 0, sy = 0;
     bool swizzled = false;
 };
 
@@ -119,12 +124,17 @@ static void pack_texels(const uint8_t* src, uint32_t len, uint32_t at, void* dst
         }
         return;
     }
-    uint32_t units = stride / 8;
+    uint32_t units = (uint32_t)(pack.src_stride ? pack.src_stride : pack.stride) / 8;
     for (uint32_t u = 0; u < len / 256; u++) {
         uint32_t k = at / 256 + u;
         uint32_t y0 = (k / units) * 8;
+        uint16_t* o = (uint16_t*)dst + (size_t)k * 64;
+        if (pack.src_stride) {
+            uint32_t x0 = (k % units) * 8;
+            if (y0 < (uint32_t)pack.sy || y0 >= (uint32_t)(pack.sy + pack.rows) || x0 < (uint32_t)pack.sx || x0 >= (uint32_t)pack.sx + stride) continue;
+            o = (uint16_t*)dst + (size_t)(((y0 - pack.sy) / 8) * (stride / 8) + (x0 - pack.sx) / 8) * 64;
+        }
         const uint8_t* s = src + u * 256;
-        uint16_t* o = out + u * 64;
         for (int r = 0; r < 8; r++) {
             const uint8_t* row = BAYER + ((y0 + r) & 3) * 4;
             for (int i = 0; i < 8; i++) o[r * 8 + i] = pack_texel(s + (i < 4 ? r * 16 + i * 4 : 128 + r * 16 + (i - 4) * 4), pack.fmt, row[i & 3]);
@@ -135,7 +145,8 @@ static void pack_texels(const uint8_t* src, uint32_t len, uint32_t at, void* dst
 static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* dst, uint32_t bytes, bool paced, const Pack& pack = Pack()) {
     if (fs::data_seek(f, off, SEEK_SET) != 0) return false;
     bool packing = pack.fmt >= 0;
-    uint32_t rsize = packing ? bytes * 2 : bytes;
+    uint32_t rsize = pack.src_stride ? (uint32_t)pack.src_stride * (uint32_t)pack.src_rows * 4 : packing ? bytes * 2 : bytes;
+    uint32_t need = pack.src_stride ? (uint32_t)pack.src_stride * (uint32_t)(pack.sy + pack.rows) * 4 : UINT32_MAX;
     uint8_t* stage = nullptr;
     if (packing) {
         stage = (uint8_t*)std::malloc(INFLATE_SLICE);
@@ -153,7 +164,7 @@ static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* d
     uint32_t packed = 0;
     uint32_t left = csize;
     int ret = Z_OK;
-    while (ret != Z_STREAM_END) {
+    while (ret != Z_STREAM_END && packed < need) {
         if (zs.avail_in == 0) {
             if (left == 0) break;
             size_t want = std::min<size_t>(sizeof(in), left);
@@ -176,7 +187,7 @@ static bool inflate_range(fs::DataFile* f, uint32_t off, uint32_t csize, void* d
             zs.avail_out = std::min(rsize - (uint32_t)zs.total_out, slice);
         }
     }
-    bool ok = ret == Z_STREAM_END && zs.total_out == rsize;
+    bool ok = pack.src_stride ? packed >= need : ret == Z_STREAM_END && zs.total_out == rsize;
     inflateEnd(&zs);
     std::free(stage);
     return ok;
@@ -211,12 +222,28 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
         fs::data_close(f);
         return out;
     }
+    if (g_compact && out.fmt == (int)gfx::Format::RGBA8888 && (out.flags & 32) && !has_pal) {
+        uint8_t at[4], head[4];
+        if (fs::data_read(f, at, 4) == 4 && fs::data_seek(f, rd32(at), SEEK_SET) == 0 && fs::data_read(f, head, 4) == 4) {
+            int alt_count = rd16(head);
+            std::vector<uint8_t> alt((size_t)alt_count * 24);
+            if (fs::data_read(f, pal, 1024) == 1024 && (alt_count == 0 || fs::data_read(f, alt.data(), alt.size()) == alt.size())) {
+                count = alt_count;
+                table.swap(alt);
+                out.fmt = (int)gfx::Format::T8;
+                has_pal = true;
+            }
+        }
+    }
     if (g_compact && out.fmt == (int)gfx::Format::RGBA8888) {
         out.packed = true;
         out.fmt = (int)((out.flags & 4) ? gfx::Format::RGB565 : (out.flags & 24) ? gfx::Format::RGBA5551 : gfx::Format::RGBA4444);
     }
     uint32_t shift = out.packed ? 1 : 0;
-    if (count > 1) {
+    bool split = out.packed && (out.flags & 1);
+    bool any_split = false;
+    for (int k = 0; split && k < count; k++) any_split |= (rd32(&table[(size_t)k * 24 + 20]) >> shift) > SPLIT_BYTES;
+    if (count > 1 || any_split) {
         out.lazy = true;
         out.source = rel;
         if (has_pal) {
@@ -235,7 +262,27 @@ static Decoded decode_data(const std::string& rel, bool main_thread) {
             c.offset = rd32(e + 12);
             c.csize = rd32(e + 16);
             c.rsize = rd32(e + 20) >> shift;
-            out.chunks.push_back(c);
+            if (!split || c.rsize <= SPLIT_BYTES) {
+                out.chunks.push_back(c);
+                continue;
+            }
+            for (int oy = 0; oy < c.h; oy += SPLIT_SIZE) {
+                for (int ox = 0; ox < c.w; ox += SPLIT_SIZE) {
+                    Decoded::Chunk s = c;
+                    s.x = c.x + ox;
+                    s.y = c.y + oy;
+                    s.w = std::min(SPLIT_SIZE, c.w - ox);
+                    s.h = std::min(SPLIT_SIZE, c.h - oy);
+                    s.stride = (s.w + 15) & ~15;
+                    s.rows = (s.h + 7) & ~7;
+                    s.rsize = (uint32_t)s.stride * (uint32_t)s.rows * 2;
+                    s.src_stride = c.stride;
+                    s.src_rows = c.rows;
+                    s.sx = ox;
+                    s.sy = oy;
+                    out.chunks.push_back(s);
+                }
+            }
         }
         fs::data_close(f);
         out.ok = true;
@@ -320,6 +367,10 @@ static Image* finish(Decoded& d) {
         ic.rsize = c.rsize;
         ic.stride = (uint16_t)c.stride;
         ic.rows = (uint16_t)c.rows;
+        ic.src_stride = (uint16_t)c.src_stride;
+        ic.src_rows = (uint16_t)c.src_rows;
+        ic.sx = (uint16_t)c.sx;
+        ic.sy = (uint16_t)c.sy;
         ic.tex = nullptr;
         if (!d.lazy) {
             ic.tex = gfx::texture_create(c.w, c.h, c.stride, c.rows, (gfx::Format)d.fmt, img->swizzled, c.pixels, c.palette);
@@ -388,6 +439,11 @@ static Pack chunk_pack(const Image* img, const ImageChunk& c) {
     if (img->packed) {
         p.fmt = img->fmt;
         p.stride = c.stride;
+        p.rows = c.rows;
+        p.src_stride = c.src_stride;
+        p.src_rows = c.src_rows;
+        p.sx = c.sx;
+        p.sy = c.sy;
         p.swizzled = img->swizzled;
     }
     return p;
