@@ -19,8 +19,8 @@ set(CMAKE_STRIP ${DEVKITXENON}/bin/xenon-strip CACHE FILEPATH "")
 set(CMAKE_OBJCOPY ${DEVKITXENON}/bin/xenon-objcopy CACHE FILEPATH "")
 
 set(XENON_MACHDEP "-DXENON -m32 -maltivec -fno-pic -mpowerpc64 -mhard-float")
-set(CMAKE_C_FLAGS_INIT "${XENON_MACHDEP} -isystem ${DEVKITXENON}/usr/include")
-set(CMAKE_CXX_FLAGS_INIT "${XENON_MACHDEP} -isystem ${DEVKITXENON}/usr/include")
+set(CMAKE_C_FLAGS_INIT "${XENON_MACHDEP} -fno-gcse -isystem ${DEVKITXENON}/usr/include")
+set(CMAKE_CXX_FLAGS_INIT "${XENON_MACHDEP} -fno-gcse -isystem ${DEVKITXENON}/usr/include")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-m32 -maltivec -fno-pic -mpowerpc64 -mhard-float -n -T ${DEVKITXENON}/app.lds -L${DEVKITXENON}/xenon/lib/32 -L${DEVKITXENON}/usr/lib -u read -u _start -u exc_base")
 
 set(CMAKE_FIND_ROOT_PATH ${DEVKITXENON}/usr ${DEVKITXENON}/xenon)
