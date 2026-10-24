@@ -44,6 +44,10 @@ int64_t data_tell(DataFile*) { return 0; }
 void data_close(DataFile*) {}
 }
 
+namespace loader {
+void pump() {}
+}
+
 namespace {
 
 const char* PRELUDE = R"JS(
