@@ -66,6 +66,16 @@ const Value* preloaded_event(int map_id, int event_id, std::shared_ptr<const voi
     return ev.is_obj() ? &ev : nullptr;
 }
 
+const Value* map_event(int map_id, int event_id, std::shared_ptr<const void>* keep) {
+    if (params().preloaded_maps.count(map_id)) return preloaded_event(map_id, event_id, keep);
+    std::shared_ptr<Document> doc = game_map().map_id_ == map_id ? game_map().doc : nullptr;
+    if (!doc) doc = load_map_doc(map_id);
+    if (!doc) return nullptr;
+    if (keep) *keep = doc;
+    const Value& ev = doc->root()["data"]["events"][event_id];
+    return ev.is_obj() ? &ev : nullptr;
+}
+
 GameCommonEvent::GameCommonEvent(int id) : common_event_id(id) { refresh(); }
 GameCommonEvent::~GameCommonEvent() = default;
 

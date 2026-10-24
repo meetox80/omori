@@ -352,6 +352,7 @@ private:
 };
 
 const Value* preloaded_event(int map_id, int event_id, std::shared_ptr<const void>* keep);
+const Value* map_event(int map_id, int event_id, std::shared_ptr<const void>* keep);
 std::shared_ptr<Document> load_map_doc(int id);
 
 }

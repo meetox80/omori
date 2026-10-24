@@ -2400,7 +2400,7 @@ void GameInterpreter::process_call_event() { insert_call_event_data(call_event_e
 void GameInterpreter::insert_call_event_data(int event_id, int page_id) {
     call_event_running = false;
     std::shared_ptr<const void> keep;
-    const Value* ev = preloaded_event(call_event_map_id, event_id, &keep);
+    const Value* ev = map_event(call_event_map_id, event_id, &keep);
     if (!ev || !ev->is_obj()) return;
     const Value& page = (*ev)["pages"][page_id - 1];
     if (!page.is_obj()) return;
