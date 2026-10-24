@@ -3,9 +3,9 @@
 #include "../platform.h"
 #include "../common/testing.h"
 #include "../../core/fs.h"
+#include "wii.h"
 
 #include <asndlib.h>
-#include <fat.h>
 #include <gccore.h>
 #include <malloc.h>
 #include <ogc/lwp_watchdog.h>
@@ -67,7 +67,7 @@ bool init(int argc, char** argv) {
     WPAD_Init();
     WPAD_SetDataFormat(WPAD_CHAN_ALL, WPAD_FMT_BTNS_ACC_IR);
     WPAD_SetPowerButtonCallback(wiimote_power);
-    fatInitDefault();
+    wii::mount_storage();
     std::string base = app_dir(argc, argv);
     g_opt.data_root = base + "/omori.pak";
     g_opt.save_root = base + "/saves";
