@@ -9,8 +9,6 @@
 #include "../core/value.h"
 #include "../js/value.h"
 
-struct Node;
-
 namespace rpg {
 
 class GameInterpreter;
@@ -18,10 +16,11 @@ class GameInterpreter;
 namespace save {
 
 struct Ctx;
+class Writer;
 
 class Ar {
 public:
-    Ar(Node* out, Ctx* ctx);
+    Ar(Writer* out, Ctx* ctx);
     Ar(const Value* in, Ctx* ctx);
     bool reading() const { return in_ != nullptr; }
     Ctx* ctx() const { return ctx_; }
@@ -62,12 +61,14 @@ public:
     size_t list(const char* k, size_t write_count, const std::function<void(Ar&, size_t)>& f);
     const Value* value(const char* k, const Value* v);
     const Value* in() const { return in_; }
-    Node* out() const { return out_; }
+    Writer& put(const char* k);
+    size_t written() const { return written_; }
 
 private:
-    Node* out_ = nullptr;
+    Writer* out_ = nullptr;
     const Value* in_ = nullptr;
     Ctx* ctx_ = nullptr;
+    size_t written_ = 0;
 };
 
 struct SlotInfo {

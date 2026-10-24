@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <new>
 #include <unordered_map>
 
 #include "../core/bytes.h"
@@ -24,7 +25,6 @@
 #include "filter.h"
 #include "game.h"
 #include "interpreter.h"
-#include "node.h"
 #include "party.h"
 #include "scene.h"
 
@@ -38,57 +38,178 @@ struct Ctx {
     std::vector<std::function<void()>> fixups;
 };
 
+static void put_varint(std::vector<uint8_t>& b, uint64_t n) {
+    for (;;) {
+        uint8_t v = n & 0x7F;
+        n >>= 7;
+        if (!n) {
+            b.push_back(v);
+            return;
+        }
+        b.push_back(v | 0x80);
+    }
+}
+
+class Writer {
+public:
+    void null() { body_.push_back(0); }
+    void boolean(bool v) { body_.push_back(v ? 2 : 1); }
+
+    void num(double v) {
+        if (v == std::floor(v) && v >= -2147483648.0 && v < 2147483648.0) {
+            int64_t i = (int64_t)v;
+            uint64_t z = (uint64_t)i << 1;
+            body_.push_back(3);
+            put_varint(body_, i < 0 ? ~z : z);
+            return;
+        }
+        uint64_t bits;
+        std::memcpy(&bits, &v, 8);
+        body_.push_back(4);
+        for (int k = 0; k < 8; k++) body_.push_back((uint8_t)(bits >> (8 * k)));
+    }
+
+    void str(const char* s, size_t n) {
+        body_.push_back(5);
+        put_varint(body_, intern(s, n));
+    }
+
+    void cstr(const char* s) { str(s, std::strlen(s)); }
+
+    void bytes(const uint8_t* p, size_t n) {
+        body_.push_back(8);
+        put_varint(body_, n);
+        body_.insert(body_.end(), p, p + n);
+    }
+
+    void key(const char* k) { put_varint(body_, intern(k, std::strlen(k))); }
+
+    void arr(size_t n) {
+        body_.push_back(6);
+        put_varint(body_, n);
+    }
+
+    size_t open_obj() {
+        body_.push_back(7);
+        size_t at = body_.size();
+        body_.insert(body_.end(), COUNT_BYTES, 0);
+        return at;
+    }
+
+    void close_obj(size_t at, size_t n) {
+        for (int k = 0; k < COUNT_BYTES; k++) body_[at + k] = (uint8_t)(((n >> (7 * k)) & 0x7F) | (k + 1 < COUNT_BYTES ? 0x80 : 0));
+    }
+
+    std::vector<uint8_t> finish() {
+        std::vector<uint8_t> table;
+        put_varint(table, offs_.size());
+        for (size_t i = 0; i < offs_.size(); i++) {
+            put_varint(table, lens_[i]);
+            table.insert(table.end(), pool_.begin() + offs_[i], pool_.begin() + offs_[i] + lens_[i]);
+            table.push_back(0);
+        }
+        std::vector<uint8_t> out;
+        out.reserve(12 + table.size() + body_.size());
+        out.insert(out.end(), {'V', 'B', 'I', 'N', 2, 0, 0, 0});
+        for (int k = 0; k < 4; k++) out.push_back((uint8_t)(table.size() >> (8 * k)));
+        out.insert(out.end(), table.begin(), table.end());
+        out.insert(out.end(), body_.begin(), body_.end());
+        std::vector<uint8_t>().swap(body_);
+        return out;
+    }
+
+private:
+    static constexpr int COUNT_BYTES = 4;
+
+    static uint32_t hash(const char* s, size_t n) {
+        uint32_t h = 2166136261u;
+        for (size_t i = 0; i < n; i++) h = (h ^ (uint8_t)s[i]) * 16777619u;
+        return h;
+    }
+
+    uint32_t intern(const char* s, size_t n) {
+        if ((offs_.size() + 1) * 2 > slots_.size()) rehash();
+        size_t mask = slots_.size() - 1, at = hash(s, n) & mask;
+        while (uint32_t id = slots_[at]) {
+            if (lens_[id - 1] == n && !std::memcmp(pool_.data() + offs_[id - 1], s, n)) return id - 1;
+            at = (at + 1) & mask;
+        }
+        offs_.push_back((uint32_t)pool_.size());
+        lens_.push_back((uint32_t)n);
+        pool_.insert(pool_.end(), s, s + n);
+        slots_[at] = (uint32_t)offs_.size();
+        return (uint32_t)offs_.size() - 1;
+    }
+
+    void rehash() {
+        std::vector<uint32_t> slots(slots_.empty() ? 256 : slots_.size() * 2, 0);
+        size_t mask = slots.size() - 1;
+        for (size_t i = 0; i < offs_.size(); i++) {
+            size_t at = hash(pool_.data() + offs_[i], lens_[i]) & mask;
+            while (slots[at]) at = (at + 1) & mask;
+            slots[at] = (uint32_t)i + 1;
+        }
+        slots_.swap(slots);
+    }
+
+    std::vector<uint8_t> body_;
+    std::vector<char> pool_;
+    std::vector<uint32_t> offs_, lens_, slots_;
+};
+
 namespace {
 
 enum JsTag { TAG_UNDEF = 0, TAG_ARRAY = 1, TAG_OBJECT = 2, TAG_REF = 3, TAG_HOST = 4 };
 
-Node* host_node(const char* kind, double a = 0, const std::string* s = nullptr) {
-    Node* n = node_arr();
-    node_push(n, node_num(TAG_HOST));
-    node_push(n, node_str(kind));
-    if (s) node_push(n, node_str(s->c_str()));
-    else node_push(n, node_num(a));
-    return n;
+bool callable(const js::Val& v) { return v.t == js::T::Obj && (v.o->kind == js::Kind::Function || v.o->kind == js::Kind::Native); }
+
+bool host(Writer& w, const char* kind, double a = 0, const std::string* s = nullptr) {
+    w.arr(3);
+    w.num(TAG_HOST);
+    w.cstr(kind);
+    if (s) w.cstr(s->c_str());
+    else w.num(a);
+    return true;
 }
 
-Node* encode_host(js::Obj* o) {
+bool encode_host(Writer& w, js::Obj* o) {
     js::Val v = js::Val::obj(o);
-    auto same = [&](const js::Val& w) { return w.t == js::T::Obj && w.o == o; };
-    if (same(game_system_js())) return host_node("system");
-    if (same(game_screen_js())) return host_node("screen");
-    if (same(game_timer_js())) return host_node("timer");
-    if (same(game_temp_js())) return host_node("temp");
-    if (same(game_message_js())) return host_node("message");
-    if (same(switches_proxy())) return host_node("switches");
-    if (same(variables_proxy())) return host_node("variables");
+    auto same = [&](const js::Val& x) { return x.t == js::T::Obj && x.o == o; };
+    if (same(game_system_js())) return host(w, "system");
+    if (same(game_screen_js())) return host(w, "screen");
+    if (same(game_timer_js())) return host(w, "timer");
+    if (same(game_temp_js())) return host(w, "temp");
+    if (same(game_message_js())) return host(w, "message");
+    if (same(switches_proxy())) return host(w, "switches");
+    if (same(variables_proxy())) return host(w, "variables");
     js::JsObject* jo = js::as_object(v);
-    if (!jo) return nullptr;
-    if (jo == &game_party()) return host_node("party");
-    if (jo == &game_troop()) return host_node("troop");
-    if (jo == &game_map()) return host_node("map");
-    if (jo == &game_player()) return host_node("player");
-    if (jo == &game_actors()) return host_node("actors");
-    if (jo == &game_player().followers_) return host_node("followers");
-    if (auto* a = dynamic_cast<GameActor*>(jo)) return host_node("actor", a->actor_id());
-    if (auto* e = dynamic_cast<GameEnemy*>(jo)) return host_node("enemy", e->index());
+    if (!jo) return false;
+    if (jo == &game_party()) return host(w, "party");
+    if (jo == &game_troop()) return host(w, "troop");
+    if (jo == &game_map()) return host(w, "map");
+    if (jo == &game_player()) return host(w, "player");
+    if (jo == &game_actors()) return host(w, "actors");
+    if (jo == &game_player().followers_) return host(w, "followers");
+    if (auto* a = dynamic_cast<GameActor*>(jo)) return host(w, "actor", a->actor_id());
+    if (auto* e = dynamic_cast<GameEnemy*>(jo)) return host(w, "enemy", e->index());
     if (auto* ev = dynamic_cast<GameEvent*>(jo)) {
-        if (game_map().event(ev->event_id()) == ev) return host_node("event", ev->event_id());
-        return nullptr;
+        if (game_map().event(ev->event_id()) == ev) return host(w, "event", ev->event_id());
+        return false;
     }
     if (auto* f = dynamic_cast<GameFollower*>(jo)) {
         auto& d = game_player().followers_.data;
         for (size_t i = 0; i < d.size(); i++) {
-            if (d[i].get() == f) return host_node("follower", (double)i);
+            if (d[i].get() == f) return host(w, "follower", (double)i);
         }
-        return nullptr;
+        return false;
     }
     if (auto* fog = dynamic_cast<GameMapFog*>(jo)) {
         for (auto& kv : game_map().map_fogs) {
-            if (kv.second.get() == fog) return host_node("fog", 0, &kv.first);
+            if (kv.second.get() == fog) return host(w, "fog", 0, &kv.first);
         }
-        return nullptr;
+        return false;
     }
-    return nullptr;
+    return false;
 }
 
 js::Val decode_host(const Value& v) {
@@ -131,58 +252,84 @@ js::Val decode_host(const Value& v) {
     return js::Val::null();
 }
 
-Node* encode_val(Ctx* ctx, const js::Val& v) {
+void encode_val(Ctx* ctx, Writer& w, const js::Val& v) {
     switch (v.t) {
-        case js::T::Undef: {
-            Node* n = node_arr();
-            node_push(n, node_num(TAG_UNDEF));
-            return n;
-        }
-        case js::T::Null: return node_null();
-        case js::T::Bool: return node_bool(v.b);
-        case js::T::Num: return node_num(v.n);
-        case js::T::Str: return node_strn(v.str_ref().data(), v.str_ref().size());
+        case js::T::Undef:
+            w.arr(1);
+            w.num(TAG_UNDEF);
+            return;
+        case js::T::Null: w.null(); return;
+        case js::T::Bool: w.boolean(v.b); return;
+        case js::T::Num: w.num(v.n); return;
+        case js::T::Str: w.str(v.str_ref().data(), v.str_ref().size()); return;
         case js::T::Obj: break;
     }
     js::Obj* o = v.o;
-    if (o->kind == js::Kind::Function || o->kind == js::Kind::Native) {
-        Node* n = node_arr();
-        node_push(n, node_num(TAG_UNDEF));
-        return n;
+    if (callable(v)) {
+        w.arr(1);
+        w.num(TAG_UNDEF);
+        return;
     }
     if (o->kind == js::Kind::Host) {
-        Node* h = encode_host(o);
-        if (h) return h;
-        return node_null();
+        if (!encode_host(w, o)) w.null();
+        return;
     }
     auto it = ctx->ids.find(o);
     if (it != ctx->ids.end()) {
-        Node* n = node_arr();
-        node_push(n, node_num(TAG_REF));
-        node_push(n, node_num(it->second));
-        return n;
+        w.arr(2);
+        w.num(TAG_REF);
+        w.num(it->second);
+        return;
     }
     int id = (int)ctx->ids.size();
     ctx->ids[o] = id;
-    Node* n = node_arr();
     if (o->kind == js::Kind::Array) {
-        node_push(n, node_num(TAG_ARRAY));
-        node_push(n, node_num(id));
-        for (auto& item : o->items) node_push(n, encode_val(ctx, item));
-        return n;
+        w.arr(2 + o->items.size());
+        w.num(TAG_ARRAY);
+        w.num(id);
+        for (auto& item : o->items) encode_val(ctx, w, item);
+        return;
     }
-    node_push(n, node_num(TAG_OBJECT));
-    node_push(n, node_num(id));
     std::vector<uint32_t> keys;
     js::ordered_keys(o, keys);
+    std::vector<std::pair<uint32_t, const js::Val*>> fields;
+    fields.reserve(keys.size());
     for (uint32_t k : keys) {
         const js::Val* pv = o->find(k);
-        if (!pv) continue;
-        if (pv->t == js::T::Obj && (pv->o->kind == js::Kind::Function || pv->o->kind == js::Kind::Native)) continue;
-        node_push(n, node_str(js::atom_name(k).c_str()));
-        node_push(n, encode_val(ctx, *pv));
+        if (pv && !callable(*pv)) fields.emplace_back(k, pv);
     }
-    return n;
+    w.arr(2 + fields.size() * 2);
+    w.num(TAG_OBJECT);
+    w.num(id);
+    for (auto& f : fields) {
+        w.cstr(js::atom_name(f.first).c_str());
+        encode_val(ctx, w, *f.second);
+    }
+}
+
+void write_value(Writer& w, const Value& v) {
+    switch (v.t) {
+        case Value::Null: w.null(); return;
+        case Value::Bool: w.boolean(v.b); return;
+        case Value::Int:
+        case Value::Num: w.num(v.num()); return;
+        case Value::Str: w.str(v.str(), v.size()); return;
+        case Value::Bytes: w.bytes(v.bytes, v.size()); return;
+        case Value::Arr:
+            w.arr(v.size());
+            for (size_t i = 0; i < v.size(); i++) write_value(w, v[i]);
+            return;
+        case Value::Obj: {
+            size_t at = w.open_obj(), n = 0;
+            for (const Member& m : v.members()) {
+                w.key(m.key);
+                write_value(w, m.v);
+                n++;
+            }
+            w.close_obj(at, n);
+            return;
+        }
+    }
 }
 
 js::Val decode_val(Ctx* ctx, const Value& v) {
@@ -220,14 +367,20 @@ const Value* field(const Value* in, const char* k) { return in ? in->find(k) : n
 
 }
 
-Ar::Ar(Node* out, Ctx* ctx) : out_(out), ctx_(ctx) {}
+Ar::Ar(Writer* out, Ctx* ctx) : out_(out), ctx_(ctx) {}
 Ar::Ar(const Value* in, Ctx* ctx) : in_(in), ctx_(ctx) {}
 
 bool Ar::has(const char* k) const { return reading() ? field(in_, k) != nullptr : true; }
 
+Writer& Ar::put(const char* k) {
+    written_++;
+    out_->key(k);
+    return *out_;
+}
+
 void Ar::io(const char* k, int& v) {
     if (!reading()) {
-        node_set(out_, k, node_num(v));
+        put(k).num(v);
         return;
     }
     if (const Value* f = field(in_, k)) v = f->as_int(v);
@@ -235,7 +388,7 @@ void Ar::io(const char* k, int& v) {
 
 void Ar::io(const char* k, double& v) {
     if (!reading()) {
-        node_set(out_, k, node_num(v));
+        put(k).num(v);
         return;
     }
     if (const Value* f = field(in_, k)) v = f->num(v);
@@ -243,7 +396,7 @@ void Ar::io(const char* k, double& v) {
 
 void Ar::io(const char* k, bool& v) {
     if (!reading()) {
-        node_set(out_, k, node_bool(v));
+        put(k).boolean(v);
         return;
     }
     if (const Value* f = field(in_, k)) v = f->truthy();
@@ -257,7 +410,7 @@ void Ar::io(const char* k, uint64_t& v) {
 
 void Ar::io(const char* k, std::string& v) {
     if (!reading()) {
-        node_set(out_, k, node_strn(v.data(), v.size()));
+        put(k).str(v.data(), v.size());
         return;
     }
     if (const Value* f = field(in_, k)) v = f->string();
@@ -265,7 +418,7 @@ void Ar::io(const char* k, std::string& v) {
 
 void Ar::io(const char* k, js::Val& v) {
     if (!reading()) {
-        node_set(out_, k, encode_val(ctx_, v));
+        encode_val(ctx_, put(k), v);
         return;
     }
     if (const Value* f = field(in_, k)) v = decode_val(ctx_, *f);
@@ -274,13 +427,15 @@ void Ar::io(const char* k, js::Val& v) {
 
 void Ar::io(const char* k, js::Expando& v) {
     if (!reading()) {
-        Node* n = node_arr();
+        size_t n = 0;
+        for (auto& p : v.props) n += !callable(p.v);
+        Writer& w = put(k);
+        w.arr(n * 2);
         for (auto& p : v.props) {
-            if (p.v.t == js::T::Obj && (p.v.o->kind == js::Kind::Function || p.v.o->kind == js::Kind::Native)) continue;
-            node_push(n, node_str(js::atom_name(p.key).c_str()));
-            node_push(n, encode_val(ctx_, p.v));
+            if (callable(p.v)) continue;
+            w.cstr(js::atom_name(p.key).c_str());
+            encode_val(ctx_, w, p.v);
         }
-        node_set(out_, k, n);
         return;
     }
     v.clear();
@@ -292,9 +447,9 @@ void Ar::io(const char* k, js::Expando& v) {
 template <class T, class W, class R>
 static void io_vec(Ar& ar, const char* k, std::vector<T>& v, W w, R r) {
     if (!ar.reading()) {
-        Node* n = node_arr();
-        for (auto& x : v) node_push(n, w(x));
-        node_set(ar.out(), k, n);
+        Writer& out = ar.put(k);
+        out.arr(v.size());
+        for (auto& x : v) w(out, x);
         return;
     }
     const Value* f = field(ar.in(), k);
@@ -304,18 +459,18 @@ static void io_vec(Ar& ar, const char* k, std::vector<T>& v, W w, R r) {
 }
 
 void Ar::io(const char* k, std::vector<int>& v) {
-    io_vec(*this, k, v, [](int x) { return node_num(x); }, [](const Value& x) { return x.as_int(); });
+    io_vec(*this, k, v, [](Writer& w, int x) { w.num(x); }, [](const Value& x) { return x.as_int(); });
 }
 
 void Ar::io(const char* k, std::vector<double>& v) {
-    io_vec(*this, k, v, [](double x) { return node_num(x); }, [](const Value& x) { return x.num(); });
+    io_vec(*this, k, v, [](Writer& w, double x) { w.num(x); }, [](const Value& x) { return x.num(); });
 }
 
 void Ar::io(const char* k, std::vector<bool>& v) {
     if (!reading()) {
-        Node* n = node_arr();
-        for (bool x : v) node_push(n, node_bool(x));
-        node_set(out_, k, n);
+        Writer& w = put(k);
+        w.arr(v.size());
+        for (bool x : v) w.boolean(x);
         return;
     }
     const Value* f = field(in_, k);
@@ -326,7 +481,7 @@ void Ar::io(const char* k, std::vector<bool>& v) {
 
 void Ar::io(const char* k, std::vector<uint8_t>& v) {
     if (!reading()) {
-        node_set(out_, k, node_bytes(v.data(), v.size()));
+        put(k).bytes(v.data(), v.size());
         return;
     }
     const Value* f = field(in_, k);
@@ -335,18 +490,18 @@ void Ar::io(const char* k, std::vector<uint8_t>& v) {
 }
 
 void Ar::io(const char* k, std::vector<std::string>& v) {
-    io_vec(*this, k, v, [](const std::string& x) { return node_strn(x.data(), x.size()); }, [](const Value& x) { return x.string(); });
+    io_vec(*this, k, v, [](Writer& w, const std::string& x) { w.str(x.data(), x.size()); }, [](const Value& x) { return x.string(); });
 }
 
 template <class K, class V, class WK, class WV, class RK, class RV>
 static void io_map(Ar& ar, const char* k, std::map<K, V>& m, WK wk, WV wv, RK rk, RV rv) {
     if (!ar.reading()) {
-        Node* n = node_arr();
+        Writer& w = ar.put(k);
+        w.arr(m.size() * 2);
         for (auto& kv : m) {
-            node_push(n, wk(kv.first));
-            node_push(n, wv(kv.second));
+            wk(w, kv.first);
+            wv(w, kv.second);
         }
-        node_set(ar.out(), k, n);
         return;
     }
     const Value* f = field(ar.in(), k);
@@ -355,42 +510,42 @@ static void io_map(Ar& ar, const char* k, std::map<K, V>& m, WK wk, WV wv, RK rk
     for (size_t i = 0; i + 1 < f->size(); i += 2) m[rk((*f)[i])] = rv((*f)[i + 1]);
 }
 
-static Node* num_node(double d) { return node_num(d); }
+static void num_out(Writer& w, double d) { w.num(d); }
+static void bool_out(Writer& w, bool b) { w.boolean(b); }
+static void str_out(Writer& w, const std::string& s) { w.str(s.data(), s.size()); }
 static int int_of(const Value& v) { return v.as_int(); }
 static double num_of(const Value& v) { return v.num(); }
-static Node* str_node(const std::string& s) { return node_strn(s.data(), s.size()); }
 static std::string str_of(const Value& v) { return v.string(); }
 
-void Ar::io(const char* k, std::map<int, double>& v) { io_map(*this, k, v, num_node, num_node, int_of, num_of); }
-void Ar::io(const char* k, std::map<int, int>& v) { io_map(*this, k, v, num_node, num_node, int_of, int_of); }
+void Ar::io(const char* k, std::map<int, double>& v) { io_map(*this, k, v, num_out, num_out, int_of, num_of); }
+void Ar::io(const char* k, std::map<int, int>& v) { io_map(*this, k, v, num_out, num_out, int_of, int_of); }
 
 void Ar::io(const char* k, std::map<int, bool>& v) {
-    io_map(*this, k, v, num_node, [](bool b) { return node_bool(b); }, int_of, [](const Value& x) { return x.truthy(); });
+    io_map(*this, k, v, num_out, bool_out, int_of, [](const Value& x) { return x.truthy(); });
 }
 
 void Ar::io(const char* k, std::map<int, js::Val>& v) {
     Ctx* c = ctx_;
-    io_map(*this, k, v, num_node, [c](const js::Val& x) { return encode_val(c, x); }, int_of, [c](const Value& x) { return decode_val(c, x); });
+    io_map(*this, k, v, num_out, [c](Writer& w, const js::Val& x) { encode_val(c, w, x); }, int_of, [c](const Value& x) { return decode_val(c, x); });
 }
 
-void Ar::io(const char* k, std::map<std::string, int>& v) { io_map(*this, k, v, str_node, num_node, str_of, int_of); }
+void Ar::io(const char* k, std::map<std::string, int>& v) { io_map(*this, k, v, str_out, num_out, str_of, int_of); }
 
 void Ar::io(const char* k, std::map<std::string, bool>& v) {
-    io_map(*this, k, v, str_node, [](bool b) { return node_bool(b); }, str_of, [](const Value& x) { return x.truthy(); });
+    io_map(*this, k, v, str_out, bool_out, str_of, [](const Value& x) { return x.truthy(); });
 }
 
 void Ar::io(const char* k, std::map<std::string, js::Val>& v) {
     Ctx* c = ctx_;
-    io_map(*this, k, v, str_node, [c](const js::Val& x) { return encode_val(c, x); }, str_of, [c](const Value& x) { return decode_val(c, x); });
+    io_map(*this, k, v, str_out, [c](Writer& w, const js::Val& x) { encode_val(c, w, x); }, str_of, [c](const Value& x) { return decode_val(c, x); });
 }
 
 void Ar::io(const char* k, std::map<int, std::vector<int>>& v) {
     io_map(
-        *this, k, v, num_node,
-        [](const std::vector<int>& x) {
-            Node* n = node_arr();
-            for (int i : x) node_push(n, node_num(i));
-            return n;
+        *this, k, v, num_out,
+        [](Writer& w, const std::vector<int>& x) {
+            w.arr(x.size());
+            for (int i : x) w.num(i);
         },
         int_of,
         [](const Value& x) {
@@ -402,21 +557,20 @@ void Ar::io(const char* k, std::map<int, std::vector<int>>& v) {
 
 void Ar::io(const char* k, std::map<int, std::pair<int, int>>& v) {
     io_map(
-        *this, k, v, num_node,
-        [](const std::pair<int, int>& x) {
-            Node* n = node_arr();
-            node_push(n, node_num(x.first));
-            node_push(n, node_num(x.second));
-            return n;
+        *this, k, v, num_out,
+        [](Writer& w, const std::pair<int, int>& x) {
+            w.arr(2);
+            w.num(x.first);
+            w.num(x.second);
         },
         int_of, [](const Value& x) { return std::make_pair(x[0].as_int(), x[1].as_int()); });
 }
 
 void Ar::io(const char* k, double* arr, size_t n) {
     if (!reading()) {
-        Node* a = node_arr();
-        for (size_t i = 0; i < n; i++) node_push(a, node_num(arr[i]));
-        node_set(out_, k, a);
+        Writer& w = put(k);
+        w.arr(n);
+        for (size_t i = 0; i < n; i++) w.num(arr[i]);
         return;
     }
     const Value* f = field(in_, k);
@@ -426,9 +580,9 @@ void Ar::io(const char* k, double* arr, size_t n) {
 
 void Ar::io(const char* k, bool* arr, size_t n) {
     if (!reading()) {
-        Node* a = node_arr();
-        for (size_t i = 0; i < n; i++) node_push(a, node_bool(arr[i]));
-        node_set(out_, k, a);
+        Writer& w = put(k);
+        w.arr(n);
+        for (size_t i = 0; i < n; i++) w.boolean(arr[i]);
         return;
     }
     const Value* f = field(in_, k);
@@ -438,10 +592,11 @@ void Ar::io(const char* k, bool* arr, size_t n) {
 
 void Ar::obj(const char* k, const std::function<void(Ar&)>& f) {
     if (!reading()) {
-        Node* n = node_obj();
-        Ar sub(n, ctx_);
+        Writer& w = put(k);
+        size_t at = w.open_obj();
+        Ar sub(out_, ctx_);
         f(sub);
-        node_set(out_, k, n);
+        w.close_obj(at, sub.written_);
         return;
     }
     const Value* v = field(in_, k);
@@ -452,14 +607,14 @@ void Ar::obj(const char* k, const std::function<void(Ar&)>& f) {
 
 size_t Ar::list(const char* k, size_t write_count, const std::function<void(Ar&, size_t)>& f) {
     if (!reading()) {
-        Node* n = node_arr();
+        Writer& w = put(k);
+        w.arr(write_count);
         for (size_t i = 0; i < write_count; i++) {
-            Node* e = node_obj();
-            Ar sub(e, ctx_);
+            size_t at = w.open_obj();
+            Ar sub(out_, ctx_);
             f(sub, i);
-            node_push(n, e);
+            w.close_obj(at, sub.written_);
         }
-        node_set(out_, k, n);
         return write_count;
     }
     const Value* v = field(in_, k);
@@ -473,7 +628,9 @@ size_t Ar::list(const char* k, size_t write_count, const std::function<void(Ar&,
 
 const Value* Ar::value(const char* k, const Value* v) {
     if (!reading()) {
-        node_set(out_, k, v ? js::value_to_node(*v) : node_null());
+        Writer& w = put(k);
+        if (v) write_value(w, *v);
+        else w.null();
         return v;
     }
     return field(in_, k);
@@ -2095,25 +2252,47 @@ void apply_fixups(Ctx& ctx) {
     ctx.fixups.clear();
 }
 
-std::vector<uint8_t> finish(Node* root) {
-    Buf b = {0, 0, 0};
-    vbin_dump(root, &b);
-    node_free(root);
-    std::vector<uint8_t> raw(b.data, b.data + b.len);
-    buf_free(&b);
-    return raw;
+std::vector<uint8_t> serialize(const std::function<void(Ar&)>& f) {
+    Ctx ctx;
+    Writer w;
+    size_t at = w.open_obj();
+    Ar ar(&w, &ctx);
+    f(ar);
+    w.close_obj(at, ar.written());
+    return w.finish();
 }
 
+voidpf z_alloc(voidpf, uInt items, uInt size) {
+    try {
+        return ::operator new((size_t)items * size);
+    } catch (const std::bad_alloc&) {
+        return Z_NULL;
+    }
+}
+
+void z_free(voidpf, voidpf p) { ::operator delete(p); }
+
 std::vector<uint8_t> pack(const std::vector<uint8_t>& raw) {
-    uLongf cap = compressBound((uLong)raw.size());
+    uLong cap = compressBound((uLong)raw.size());
     std::vector<uint8_t> out(12 + cap);
     std::memcpy(out.data(), "OMSV", 4);
     uint32_t version = 1;
     uint32_t size = (uint32_t)raw.size();
     bytes::put_le32(out.data() + 4, version);
     bytes::put_le32(out.data() + 8, size);
-    if (compress2(out.data() + 12, &cap, raw.data(), (uLong)raw.size(), 6) != Z_OK) return {};
-    out.resize(12 + cap);
+    z_stream z{};
+    z.zalloc = z_alloc;
+    z.zfree = z_free;
+    if (deflateInit(&z, 6) != Z_OK) return {};
+    z.next_in = const_cast<Bytef*>(raw.data());
+    z.avail_in = (uInt)raw.size();
+    z.next_out = out.data() + 12;
+    z.avail_out = (uInt)cap;
+    int r = deflate(&z, Z_FINISH);
+    uLong len = z.total_out;
+    deflateEnd(&z);
+    if (r != Z_STREAM_END) return {};
+    out.resize(12 + len);
     return out;
 }
 
@@ -2169,26 +2348,24 @@ bool load_global(GlobalInfo& gi) {
 }
 
 bool save_global(GlobalInfo& gi) {
-    Ctx ctx;
-    Node* root = node_obj();
-    Ar ar(root, &ctx);
     std::vector<int> ids;
     for (auto& kv : gi.slots) ids.push_back(kv.first);
-    ar.list("slots", ids.size(), [&](Ar& e, size_t i) {
-        int id = ids[i];
-        SlotInfo& si = gi.slots[id];
-        e.io("id", id);
-        e.io("actorName", si.actor_name);
-        e.io("actorLevel", si.actor_level);
-        e.io("faceName", si.face_name);
-        e.io("faceIndex", si.face_index);
-        e.io("chapter", si.chapter);
-        e.io("location", si.location);
-        e.io("playtime", si.playtime);
-        e.io("timestamp", si.timestamp);
-        e.io("worldIndex", si.world_index);
-    });
-    std::vector<uint8_t> packed = pack(finish(root));
+    std::vector<uint8_t> packed = pack(serialize([&](Ar& ar) {
+        ar.list("slots", ids.size(), [&](Ar& e, size_t i) {
+            int id = ids[i];
+            SlotInfo& si = gi.slots[id];
+            e.io("id", id);
+            e.io("actorName", si.actor_name);
+            e.io("actorLevel", si.actor_level);
+            e.io("faceName", si.face_name);
+            e.io("faceIndex", si.face_index);
+            e.io("chapter", si.chapter);
+            e.io("location", si.location);
+            e.io("playtime", si.playtime);
+            e.io("timestamp", si.timestamp);
+            e.io("worldIndex", si.world_index);
+        });
+    }));
     return !packed.empty() && fs::write_file(global_file(), packed.data(), packed.size());
 }
 
@@ -2282,17 +2459,18 @@ void interpreter_io(Ar& ar, GameInterpreter& in) {
 }
 
 std::vector<uint8_t> snapshot_for_retry() {
-    Ctx ctx;
-    Node* root = node_obj();
-    Ar ar(root, &ctx);
-    write_contents(ar, false);
-    return finish(root);
+    try {
+        return pack(serialize([](Ar& ar) { write_contents(ar, false); }));
+    } catch (const std::bad_alloc&) {
+        plat::log("battle retry snapshot skipped: out of memory");
+        return {};
+    }
 }
 
 void restore_retry_snapshot(const std::vector<uint8_t>& data) {
-    if (data.empty()) return;
-    std::vector<uint8_t> copy = data;
-    auto doc = parse(std::move(copy));
+    std::vector<uint8_t> raw;
+    if (data.empty() || !unpack(data, raw)) return;
+    auto doc = parse(std::move(raw));
     if (!doc) return;
     Ctx ctx;
     ctx.doc = doc;
@@ -2302,11 +2480,13 @@ void restore_retry_snapshot(const std::vector<uint8_t>& data) {
 }
 
 bool save_game(int slot) {
-    Ctx ctx;
-    Node* root = node_obj();
-    Ar ar(root, &ctx);
-    write_contents(ar, true);
-    std::vector<uint8_t> packed = pack(finish(root));
+    std::vector<uint8_t> packed;
+    try {
+        packed = pack(serialize([](Ar& ar) { write_contents(ar, true); }));
+    } catch (const std::bad_alloc&) {
+        plat::log("save %d failed: out of memory", slot);
+        return false;
+    }
     if (packed.empty()) return false;
     std::string path = slot_file(slot);
     std::string backup = path + ".bak";
