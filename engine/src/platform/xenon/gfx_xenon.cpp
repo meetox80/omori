@@ -605,7 +605,7 @@ static void set_fetch(int slot, const XenosSurface& s, bool smooth, bool repeat)
     d[2] = ((u32)(s.height - 1) << 13) | (u32)(s.width - 1);
     d[3] = 0xc14u | (filter << 19) | (filter << 21) | (2u << 23);
     d[4] = 0;
-    d[5] = 0xa00u;
+    d[5] = 0x200u;
     Xe_DirtyFetch(g_xe, slot * 3, 3);
 }
 
