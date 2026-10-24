@@ -165,7 +165,7 @@ void bind_interpreter() {
     k.call("startHitTheMarkQTE", [](GI& in, Args& a) { in.start_hit_the_mark_qte(js::arg(a, 0), js::arg(a, 1), js::arg(a, 2), js::arg(a, 3)); });
     k.call("setupShop", [](GI& in, Args& a) { in.setup_shop(js::arg(a, 0).to_str(), js::arg_int(a, 1)); });
     k.call("setEventIcon", [](GI& in, Args& a) { in.set_event_icon(js::arg_int(a, 0), js::arg(a, 1).to_str(), js::arg_int(a, 2)); });
-    k.call("showNameInputWindows", [](GI& in, Args& a) { in.show_name_input_windows(js::arg(a, 0).to_str(), js::arg_int(a, 1), js::arg(a, 2).truthy()); });
+    k.call("showNameInputWindows", [](GI& in, Args& a) { in.show_name_input_windows(js::arg_str(a, 0), js::arg_int(a, 1, 7), js::arg_bool(a, 2, true)); });
     k.call("setupAmbience", [](GI& in, Args& a) { in.setup_ambience(js::arg(a, 0).to_str(), js::arg_num(a, 1), js::arg_num(a, 2), js::arg(a, 3).truthy()); });
     auto facing = [](GI& in, int mode, bool event_facing) {
         GameEvent* ev = game_map().event(in.event_id());
