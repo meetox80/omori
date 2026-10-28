@@ -11,6 +11,7 @@ struct ImageChunk {
     uint32_t offset, csize, rsize;
     uint16_t stride, rows;
     uint16_t src_stride, src_rows, sx, sy;
+    uint64_t retry;
 };
 
 struct Image {

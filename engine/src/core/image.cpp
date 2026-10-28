@@ -479,7 +479,7 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
     Image* img = const_cast<Image*>(cimg);
     if (!img || index >= img->chunks.size()) return nullptr;
     ImageChunk& c = img->chunks[index];
-    if (c.tex || !img->lazy) return c.tex;
+    if (c.tex || !img->lazy || c.retry > g_tick) return c.tex;
     size_t need = c.rsize + (img->palette.empty() ? 0 : 1024);
     make_room(need, false);
     void* pixels = take_chunk(img->source, index);
@@ -492,7 +492,10 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
         fs::data_close(f);
         if (!ok) {
             gfx::release(pixels);
-            if (!pixels) log_chunk_skip(img, index);
+            if (!pixels) {
+                log_chunk_skip(img, index);
+                c.retry = g_tick + OOM_RETRY_TICKS;
+            }
             return nullptr;
         }
     }
@@ -501,6 +504,7 @@ gfx::Texture* chunk_texture(const Image* cimg, size_t index) {
         pal = (uint32_t*)gfx::alloc(1024);
         if (!pal) {
             gfx::release(pixels);
+            c.retry = g_tick + OOM_RETRY_TICKS;
             return nullptr;
         }
         std::memcpy(pal, img->palette.data(), 1024);
