@@ -1988,6 +1988,7 @@ void GameInterpreter::plugin_command(const std::string& command, std::vector<std
             if (needs_wait) game_map().interpreter->wait(frame);
         }
     }
+    if (!command.empty() && command == data::plugin_param("TDDP_MovePictureEx", "movePictureCommand")) plugin_command_move_picture(args);
     if (re::search("HorrorEffect", "i", command)) plugin_command_horror_effects(args);
     std::string uc = to_upper(command);
     if (uc == "CREATEFILTER") {
@@ -2265,6 +2266,65 @@ void GameInterpreter::plugin_command(const std::string& command, std::vector<std
     if (command == "GainGold") game_party().gain_gold(js_parse_int(arg_at(args, 0)));
     if (command == "LoseGold") game_party().lose_gold(js_parse_int(arg_at(args, 0)));
     if (command == "AriesWeather" || command == "AriesSetWeatherImage" || command == "AriesToggleStormThunder") weather_plugin_command(command, args);
+}
+
+void GameInterpreter::plugin_command_move_picture(std::vector<std::string> args) {
+    if (args.empty()) return;
+    auto variable = [](const std::string& s) {
+        double n = js_number(s);
+        return std::isnan(n) ? js::Val::num(0) : game_variables().value((int)n);
+    };
+    std::string id_arg = args.front();
+    args.erase(args.begin());
+    double id = id_arg[0] == 'v' ? variable(id_arg.substr(1)).to_num() : js_number(id_arg);
+    if (std::isnan(id)) return;
+    GamePicture* pic = game_screen().picture((int)id);
+    if (!pic) return;
+    std::unordered_map<std::string, js::Val> params;
+    for (const std::string& a : args) {
+        if (a == "wait") {
+            params["wait"] = js::Val::boolean(true);
+            continue;
+        }
+        re::Groups g;
+        if (!re::search("([A-zA-Z]+):(\\S+)", "", a, &g)) continue;
+        params[g[1]] = g[2][0] == 'v' ? variable(g[2].substr(1)) : js::Val::str(g[2]);
+    }
+    auto pick = [&](std::initializer_list<const char*> keys, const js::Val& def) {
+        for (const char* k : keys) {
+            auto it = params.find(k);
+            if (it != params.end() && it->second.truthy()) return it->second;
+        }
+        return def;
+    };
+    js::Val curve = pick({"c", "curve"}, js::Val());
+    if (curve.truthy()) curves::set_next(curve.to_str(), "general");
+    double current[5] = {pic->x, pic->y, pic->scale_x, pic->scale_y, pic->opacity};
+    js::Val given[5] = {pick({"x"}, js::Val::num(current[0])), pick({"y"}, js::Val::num(current[1])),
+                        pick({"w", "width", "scaleX"}, js::Val::num(current[2])), pick({"h", "height", "scaleY"}, js::Val::num(current[3])),
+                        pick({"op", "opacity"}, js::Val::num(current[4]))};
+    double target[5];
+    for (int i = 0; i < 5; i++) {
+        const std::string s = given[i].is_str() ? given[i].str_ref() : std::string();
+        if (!s.empty() && s[0] == '+') target[i] = current[i] + js_number(s.substr(1));
+        else if (!s.empty() && s[0] == '-') target[i] = current[i] - js_number(s.substr(1));
+        else target[i] = given[i].to_num();
+    }
+    auto index_of = [](const js::Val& v, std::initializer_list<const char*> names) {
+        if (!v.is_str()) return (int)v.to_num();
+        std::string lc = to_lower(v.str_ref());
+        int i = 0;
+        for (const char* n : names) {
+            if (lc == n) return i;
+            i++;
+        }
+        return -1;
+    };
+    int origin = index_of(pick({"or", "origin"}, js::Val::num(pic->origin)), {"upper_left", "center"});
+    int blend = index_of(pick({"b", "blendMode"}, js::Val::num(pic->blend_mode)), {"normal", "additive", "multiply", "screen"});
+    int duration = (int)pick({"d", "duration"}, js::Val::num(60)).to_num();
+    game_screen().move_picture((int)id, origin, target[0], target[1], target[2], target[3], target[4], blend, duration);
+    if (pick({"wait"}, js::Val()).truthy()) wait(duration);
 }
 
 void GameInterpreter::change_letter_sound_name(const std::vector<std::string>& args) {

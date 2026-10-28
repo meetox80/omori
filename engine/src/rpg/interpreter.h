@@ -215,6 +215,7 @@ public:
     void process_call_event();
     void insert_call_event_data(int event_id, int page_id);
     void plugin_command_horror_effects(std::vector<std::string> args);
+    void plugin_command_move_picture(std::vector<std::string> args);
     void set_message_anchor(const std::string& s, char type);
     void change_letter_sound_name(const std::vector<std::string>& args);
     void set_picture_animation(int picture_id, const js::Val& frames, double delay, double loops, bool wait);
