@@ -406,12 +406,32 @@ void Sprite::build_tint() {
     double r2 = std::max(0.0, -color_tone_[0]), g2 = std::max(0.0, -color_tone_[1]), b2 = std::max(0.0, -color_tone_[2]);
     double r3 = std::max(0.0, blend_color_[0]), g3 = std::max(0.0, blend_color_[1]), b3 = std::max(0.0, blend_color_[2]);
     double a3 = std::max(0.0, blend_color_[3]) / 255.0;
-    int pw = img->w, ph = img->h;
-    std::vector<uint32_t> out((size_t)pw * ph);
-    for (int y = 0; y < ph; y++) {
-        for (int x = 0; x < pw; x++) {
-            uint32_t p = tinted_->pixel_premul(x, y);
-            double A = (p >> 24) / 255.0;
+    bool opaque_lut = gray == 0;
+    uint8_t lut[3][256];
+    if (opaque_lut) {
+        const double add[3] = {r1, g1, b1}, sub[3] = {r2, g2, b2}, mix[3] = {r3, g3, b3};
+        for (int c = 0; c < 3; c++) {
+            for (int v = 0; v < 256; v++) {
+                double t = std::min(255.0, v + add[c]);
+                t = std::max(0.0, t - sub[c]);
+                t = mix[c] * a3 + t * (1 - a3);
+                lut[c][v] = (uint8_t)clamp8(t);
+            }
+        }
+    }
+    tinted_->fill_rows([&](int, uint32_t* row, int w) {
+        for (int x = 0; x < w; x++) {
+            uint32_t p = row[x];
+            uint32_t a8 = p >> 24;
+            if (a8 == 0) {
+                row[x] = 0;
+                continue;
+            }
+            if (a8 == 255 && opaque_lut) {
+                row[x] = lut[0][p & 255] | ((uint32_t)lut[1][(p >> 8) & 255] << 8) | ((uint32_t)lut[2][(p >> 16) & 255] << 16) | 0xFF000000u;
+                continue;
+            }
+            double A = a8 / 255.0;
             double pr = (p & 255), pg = ((p >> 8) & 255), pb = ((p >> 16) & 255);
             double cr = A > 0 ? pr / A : 0, cg = A > 0 ? pg / A : 0, cb = A > 0 ? pb / A : 0;
             double L = 0.3 * cr + 0.59 * cg + 0.11 * cb;
@@ -427,11 +447,9 @@ void Sprite::build_tint() {
             rr = r3 * a3 + rr * (1 - a3);
             rg = g3 * a3 + rg * (1 - a3);
             rb = b3 * a3 + rb * (1 - a3);
-            out[(size_t)y * pw + x] = (uint32_t)clamp8(rr * A) | ((uint32_t)clamp8(rg * A) << 8) | ((uint32_t)clamp8(rb * A) << 16) |
-                                      ((uint32_t)clamp8(A * 255) << 24);
+            row[x] = (uint32_t)clamp8(rr * A) | ((uint32_t)clamp8(rg * A) << 8) | ((uint32_t)clamp8(rb * A) << 16) | ((uint32_t)clamp8(A * 255) << 24);
         }
-    }
-    tinted_->write_pixels(out.data(), pw, ph);
+    });
 }
 
 void Sprite::render(const RenderState& rs) {
