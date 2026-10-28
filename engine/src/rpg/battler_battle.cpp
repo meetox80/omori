@@ -722,7 +722,7 @@ double GameBattler::life_steal_eval(const Value* ast, GameBattler* target, const
     if (!target) target = this;
     js::Val self = to_js();
     JsEval e(self);
-    e.num(var, 0).set("a", self).set("user", self).set("subject", self).set("b", jsv(target)).sv();
+    e.num(var, 0).set("a", self).set("user", self).set("subject", self).set("b", jsv(target)).set("target", jsv(target)).sv();
     e.run(ast, where);
     return e.get(var).to_num();
 }
@@ -778,13 +778,13 @@ double GameBattler::steal_rate_bonus_type(const std::string& type) const {
 }
 
 void GameBattler::after_steal_eval(GameBattler* target, const ItemRef& skill, const ItemRef& item) {
-    (void)skill;
     if (!item.valid() || item.data()["afterStealEval"].string().empty()) return;
     const Value* ast = obj_ast(item.data(), "afterStealEval");
     if (ast) {
         js::Val self = to_js();
         JsEval e(self);
-        e.set("a", self).set("user", self).set("subject", self).set("b", jsv(target)).sv();
+        e.set("a", self).set("user", self).set("subject", self).set("b", jsv(target)).set("target", jsv(target)).sv();
+        e.set("skill", skill.to_js()).set("item", item.to_js());
         e.run(ast, "AFTER STEAL CUSTOM EFFECT ERROR");
     }
     refresh();
@@ -792,13 +792,13 @@ void GameBattler::after_steal_eval(GameBattler* target, const ItemRef& skill, co
 }
 
 void GameBattler::after_steal_success_eval(GameBattler* target, const ItemRef& skill, const ItemRef& item) {
-    (void)item;
     if (!skill.valid() || skill.data()["stealSuccessEval"].string().empty()) return;
     const Value* ast = obj_ast(skill.data(), "stealSuccessEval");
     if (ast) {
         js::Val self = to_js();
         JsEval e(self);
-        e.set("a", self).set("user", self).set("subject", self).set("b", jsv(target)).sv();
+        e.set("a", self).set("user", self).set("subject", self).set("b", jsv(target)).set("target", jsv(target)).sv();
+        e.set("skill", skill.to_js()).set("item", item.to_js());
         e.run(ast, "AFTER STEAL SUCCESS EFFECT ERROR");
     }
     refresh();

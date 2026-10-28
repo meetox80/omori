@@ -484,8 +484,7 @@ double GameAction::eval_damage_formula(GameBattler* target) {
     double sign = (type == 3 || type == 4) ? -1 : 1;
     const Value* ast = dmg.find("_ast");
     JsEval e(to_js());
-    js::Val a = jsv(subject()), b = jsv(target);
-    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).set("subject", a).sv();
+    init_eval(e, target);
     double value = 0;
     if (dmg["custom"].truthy()) {
         e.num("value", 0);
@@ -744,7 +743,7 @@ void GameAction::apply_global() {
 
 void GameAction::init_eval(JsEval& e, GameBattler* target) const {
     js::Val a = jsv(subject()), b = jsv(target);
-    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).set("subject", a).sv();
+    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).set("subject", a).set("target", b).sv();
 }
 
 void GameAction::apply_before_eval(GameBattler* target) {
@@ -807,7 +806,7 @@ double GameAction::apply_buff_turns_eval(double turn, int param_id, GameBattler*
     if (!ast) return turn;
     JsEval e(to_js());
     js::Val a = jsv(subject()), b = jsv(target);
-    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).sv().num("turn", turn);
+    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).set("target", b).sv().num("turn", turn).num("paramId", param_id);
     e.run(ast, debuff ? "CUSTOM DEBUFF TURN SET ERROR" : "CUSTOM BUFF TURN SET ERROR");
     return e.get("turn").to_num();
 }
@@ -848,7 +847,8 @@ double GameAction::apply_state_turns_eval(double turn, int state_id, GameBattler
     JsEval e(to_js());
     js::Val a = jsv(subject()), b = jsv(target);
     GameBattlerBase* origin = target->state_origin_battler(state_id);
-    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).set("origin", origin ? origin->to_js() : js::Val()).sv().num("turn", turn);
+    e.set("item", item().to_js()).set("a", a).set("b", b).set("user", a).set("target", b).set("origin", origin ? origin->to_js() : js::Val()).sv();
+    e.num("turn", turn).num("stateId", state_id);
     e.run(ast, "CUSTOM STATE TURN SET ERROR");
     return e.get("turn").to_num();
 }
@@ -966,7 +966,7 @@ double GameAction::apply_item_critical_mult(double value, double base, GameBattl
     if (!ast) return value;
     JsEval e(to_js());
     init_eval(e, target);
-    e.num("value", value).num("bonus", subject()->critical_multiplier_bonus());
+    e.num("value", value).num("bonus", subject()->critical_multiplier_bonus()).num("baseDamage", base);
     e.run(ast, "CRITICAL MULTIPLIER FORMULA ERROR");
     return e.get("value").to_num();
 }
@@ -1067,7 +1067,7 @@ void GameAction::perform_life_steal(double damage, GameBattler* target, double v
 double GameAction::life_steal_eval(const Value* ast, GameBattler* target, double value, const char* var, const char* where) {
     JsEval e(to_js());
     js::Val a = jsv(subject()), b = jsv(target);
-    e.num(var, 0).set("a", a).set("user", a).set("subject", a).set("b", b).sv().num("damage", value).set("item", item().to_js()).set("skill", item().to_js());
+    e.num(var, 0).set("a", a).set("user", a).set("subject", a).set("b", b).set("target", b).sv().num("damage", value).set("item", item().to_js()).set("skill", item().to_js());
     e.run(ast, where);
     return e.get(var).to_num();
 }
