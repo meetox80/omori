@@ -1231,6 +1231,7 @@ void player_io(Ar& ar, GamePlayer& p) {
     ar.io("blockedMovementInputs", p.blocked_movement_inputs);
     ar.obj("ambience", [&](Ar& s) {
         s.io("name", p.ambience.name);
+        if (s.reading() && p.ambience.name == "null") p.ambience.name.clear();
         s.io("x", p.ambience.x);
         s.io("y", p.ambience.y);
         s.io("opacity", p.ambience.opacity);
