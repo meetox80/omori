@@ -604,6 +604,18 @@ static void* decode_chunk(const ChunkJob& job) {
     return nullptr;
 }
 
+static bool g_main_locked = false;
+
+static void lock_main() {
+    plat::mutex_lock(g_mutex);
+    g_main_locked = true;
+}
+
+static void unlock_main() {
+    g_main_locked = false;
+    plat::mutex_unlock(g_mutex);
+}
+
 static void worker() {
     for (;;) {
         std::string job;
@@ -653,7 +665,7 @@ static void* take_chunk(const std::string& source, size_t index) {
     if (!g_worker) return nullptr;
     void* pixels = nullptr;
     for (;;) {
-        plat::mutex_lock(g_mutex);
+        lock_main();
         for (auto it = g_chunk_ready.begin(); it != g_chunk_ready.end(); ++it) {
             if (it->index == index && it->source == source) {
                 pixels = it->pixels;
@@ -670,7 +682,7 @@ static void* take_chunk(const std::string& source, size_t index) {
             }
         }
         bool working = g_chunk_busy && g_chunk_working.index == index && g_chunk_working.source == source;
-        plat::mutex_unlock(g_mutex);
+        unlock_main();
         if (pixels || !working) break;
         g_urgent.store(true, std::memory_order_relaxed);
         plat::sleep_ms(1);
@@ -693,7 +705,7 @@ static bool chunk_known(const std::string& source, size_t index) {
 static void prefetch_neighbors(const Image* img, size_t index) {
     ensure_worker();
     const ImageChunk& c = img->chunks[index];
-    plat::mutex_lock(g_mutex);
+    lock_main();
     for (size_t k = 0; k < img->chunks.size(); k++) {
         const ImageChunk& n = img->chunks[k];
         if (k == index || n.tex) continue;
@@ -710,12 +722,12 @@ static void prefetch_neighbors(const Image* img, size_t index) {
         g_chunk_queue.insert(g_chunk_queue.begin(), job);
         g_chunk_bytes += n.rsize;
     }
-    plat::mutex_unlock(g_mutex);
+    unlock_main();
 }
 
 static void drop_chunks(const std::string* source) {
-    if (!g_worker) return;
-    plat::mutex_lock(g_mutex);
+    if (!g_worker || g_main_locked) return;
+    lock_main();
     for (auto it = g_chunk_ready.begin(); it != g_chunk_ready.end();) {
         if (source && it->source != *source) {
             ++it;
@@ -733,7 +745,7 @@ static void drop_chunks(const std::string* source) {
         g_chunk_bytes -= it->rsize;
         it = g_chunk_queue.erase(it);
     }
-    plat::mutex_unlock(g_mutex);
+    unlock_main();
 }
 
 struct WarmImage {
@@ -775,15 +787,16 @@ static void pump_warm() {
                 w.jobs.erase(w.jobs.begin());
                 continue;
             }
-            plat::mutex_lock(g_mutex);
+            uint64_t generation = g_generation;
+            lock_main();
             bool known = chunk_known(job.source, job.index);
             bool room = known || ((g_chunk_bytes == 0 || g_chunk_bytes + job.rsize <= PREFETCH_BYTES) && !over_heap(g_chunk_bytes + job.rsize, 0));
             if (!known && room) {
                 g_chunk_queue.push_back(job);
                 g_chunk_bytes += job.rsize;
             }
-            plat::mutex_unlock(g_mutex);
-            if (!room) return;
+            unlock_main();
+            if (!room || g_generation != generation) return;
             w.jobs.erase(w.jobs.begin());
         }
         g_warm.erase(g_warm.begin());
@@ -792,7 +805,7 @@ static void pump_warm() {
 
 static void expire_chunks() {
     if (!g_worker) return;
-    plat::mutex_lock(g_mutex);
+    lock_main();
     for (auto it = g_chunk_ready.begin(); it != g_chunk_ready.end();) {
         const std::string& src = it->source;
         bool cached = src.size() > 4 && g_cache.count(src.substr(0, src.size() - 4));
@@ -805,7 +818,7 @@ static void expire_chunks() {
         g_chunk_bytes -= it->rsize;
         it = g_chunk_ready.erase(it);
     }
-    plat::mutex_unlock(g_mutex);
+    unlock_main();
 }
 
 static void insert(const std::string& rel, Image* img) {
@@ -827,9 +840,9 @@ static void collect_ready(const std::string* want) {
     if (!g_worker) return;
     std::vector<std::pair<std::string, Decoded>> ready;
     std::vector<std::string> requeue;
-    plat::mutex_lock(g_mutex);
+    lock_main();
     ready.swap(g_ready);
-    plat::mutex_unlock(g_mutex);
+    unlock_main();
     for (auto& r : ready) {
         if (g_cache.count(r.first) || !r.second.ok) {
             free_decoded(r.second);
@@ -857,7 +870,7 @@ static void collect_ready(const std::string* want) {
 void prefetch_path(const std::string& rel) {
     if (g_cache.count(rel)) return;
     ensure_worker();
-    plat::mutex_lock(g_mutex);
+    lock_main();
     bool queued = g_working == rel;
     for (auto& q : g_queue) {
         if (q == rel) queued = true;
@@ -866,7 +879,7 @@ void prefetch_path(const std::string& rel) {
         if (r.first == rel) queued = true;
     }
     if (!queued && g_queue.size() < 16) g_queue.push_back(rel);
-    plat::mutex_unlock(g_mutex);
+    unlock_main();
 }
 
 void prefetch(const std::string& folder, const std::string& name) {
@@ -878,7 +891,7 @@ static bool wait_pending(const std::string& rel) {
     if (!g_worker) return false;
     for (;;) {
         bool pending = false;
-        plat::mutex_lock(g_mutex);
+        lock_main();
         if (g_working == rel) pending = true;
         for (auto it = g_queue.begin(); it != g_queue.end(); ++it) {
             if (*it == rel) {
@@ -890,7 +903,7 @@ static bool wait_pending(const std::string& rel) {
         for (auto& r : g_ready) {
             if (r.first == rel) ready = true;
         }
-        plat::mutex_unlock(g_mutex);
+        unlock_main();
         if (ready) {
             g_urgent.store(false, std::memory_order_relaxed);
             collect_ready(&rel);
