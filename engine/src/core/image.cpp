@@ -434,6 +434,22 @@ bool read_pixel(const Image* img, int px, int py, uint32_t* out) {
     return false;
 }
 
+void read_rect(const Image* img, int x0, int y0, int w, int h, uint32_t* out, size_t stride) {
+    if (!img || w <= 0 || h <= 0) return;
+    for (size_t i = 0; i < img->chunks.size(); i++) {
+        const ImageChunk& c = img->chunks[i];
+        int ax = std::max(x0, (int)c.x), ay = std::max(y0, (int)c.y);
+        int bx = std::min(x0 + w, c.x + c.w), by = std::min(y0 + h, c.y + c.h);
+        if (ax >= bx || ay >= by) continue;
+        gfx::Texture* t = chunk_texture(img, i);
+        if (!t) continue;
+        for (int y = ay; y < by; y++) {
+            uint32_t* row = out + (size_t)(y - y0) * stride + (ax - x0);
+            for (int x = ax; x < bx; x++) gfx::texture_read(t, x - c.x, y - c.y, &row[x - ax]);
+        }
+    }
+}
+
 static Pack chunk_pack(const Image* img, const ImageChunk& c) {
     Pack p;
     if (img->packed) {

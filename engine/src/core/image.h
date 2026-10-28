@@ -39,6 +39,7 @@ std::string resolve(const std::string& folder, const std::string& name, const ch
 std::string lower(const std::string& s);
 bool exists(const std::string& folder, const std::string& name);
 bool read_pixel(const Image* img, int px, int py, uint32_t* out);
+void read_rect(const Image* img, int x0, int y0, int w, int h, uint32_t* out, size_t stride);
 gfx::Texture* chunk_texture(const Image* img, size_t index);
 Image* get(const std::string& folder, const std::string& name);
 Image* get_path(const std::string& rel);

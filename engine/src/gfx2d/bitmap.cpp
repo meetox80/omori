@@ -112,17 +112,7 @@ void Bitmap::ensure_canvas() {
     if (canvas_) return;
     Image* img = image();
     canvas_.reset(new Canvas(lw_ > 0 ? lw_ : 1, lh_ > 0 ? lh_ : 1));
-    if (img) {
-        int w = std::min(img->w, canvas_->pw), h = std::min(img->h, canvas_->ph);
-        for (int y = 0; y < h; y++) {
-            uint32_t* row = canvas_->row(y);
-            for (int x = 0; x < w; x++) {
-                uint32_t v = 0;
-                images::read_pixel(img, x, y, &v);
-                row[x] = v;
-            }
-        }
-    }
+    if (img) images::read_rect(img, 0, 0, std::min(img->w, canvas_->pw), std::min(img->h, canvas_->ph), canvas_->px, (size_t)canvas_->stride);
     key_.clear();
     canvas_->dirty = true;
 }
@@ -325,9 +315,7 @@ static const DecodedImage* decoded_image_locked(Image* img) {
     d.generation = gen;
     d.last = g_decode_clock;
     d.px.assign((size_t)img->w * img->h, 0);
-    for (int y = 0; y < img->h; y++) {
-        for (int x = 0; x < img->w; x++) images::read_pixel(img, x, y, &d.px[(size_t)y * img->w + x]);
-    }
+    images::read_rect(img, 0, 0, img->w, img->h, d.px.data(), (size_t)img->w);
     g_decoded.push_back(std::move(d));
     return &g_decoded.back();
 }
@@ -376,10 +364,7 @@ static void make_source(PixelSource& out, Canvas* canvas, Image* img, int rx0, i
     out.h = ry1 - ry0;
     out.stride = out.w;
     out.buf.assign((size_t)out.w * out.h, 0);
-    for (int y = 0; y < out.h; y++) {
-        uint32_t* row = out.buf.data() + (size_t)y * out.w;
-        for (int x = 0; x < out.w; x++) images::read_pixel(img, rx0 + x, ry0 + y, &row[x]);
-    }
+    images::read_rect(img, rx0, ry0, out.w, out.h, out.buf.data(), (size_t)out.w);
     out.px = out.buf.data();
 }
 
