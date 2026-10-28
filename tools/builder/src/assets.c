@@ -49,6 +49,7 @@ typedef struct {
     int sheet;
     int order;
     char* key;
+    int cell_w, cell_h;
 } ImageJob;
 
 typedef struct {
@@ -176,7 +177,13 @@ static void image_job_body(ImageJob* job) {
     }
     int cx, cy;
     cell_grid(job->logical, img->w, img->h, &cx, &cy);
-    if (!tex_from_image(img, cx, cy, !strncmp(job->logical, "img/faces/", 10), &job->entry->data)) job->entry->error = str_fmt("%s: could not convert", job->logical);
+    int cell_chunks = !strncmp(job->logical, "img/faces/", 10);
+    if (job->cell_w > 0 && job->cell_h > 0 && img->w % job->cell_w == 0 && img->h % job->cell_h == 0) {
+        cx = img->w / job->cell_w;
+        cy = img->h / job->cell_h;
+        cell_chunks = 1;
+    }
+    if (!tex_from_image(img, cx, cy, cell_chunks, &job->entry->data)) job->entry->error = str_fmt("%s: could not convert", job->logical);
     img_free(img);
 }
 
@@ -203,6 +210,36 @@ static int cmp_image_job(const void* a, const void* b) {
     return x->order - y->order;
 }
 
+static void battler_cell(Node* db, const char* logical, int* w, int* h) {
+    *w = *h = 0;
+    if (strncmp(logical, "img/sv_actors/", 14)) return;
+    char* name = lower_dup(logical + 14);
+    char* dot = strrchr(name, '.');
+    if (dot) *dot = 0;
+    Node* enemies = node_get(db, "enemies");
+    int found = 0, agree = 1;
+    for (size_t i = 0; enemies && i < enemies->count; i++) {
+        Node* meta = node_get(enemies->items[i], "meta");
+        const char* battler = node_strv(node_get(meta, "Sideview Battler"));
+        const char* size = node_strv(node_get(meta, "Sideview Battler Size"));
+        if (!battler || !size) continue;
+        while (*battler == ' ') battler++;
+        char* b = lower_dup(battler);
+        size_t n = strlen(b);
+        while (n && b[n - 1] == ' ') b[--n] = 0;
+        int same = !strcmp(b, name);
+        free(b);
+        int cw, ch;
+        if (!same || sscanf(size, " %d , %d", &cw, &ch) != 2 || cw <= 0 || ch <= 0) continue;
+        if (found && (cw != *w || ch != *h)) agree = 0;
+        *w = cw;
+        *h = ch;
+        found = 1;
+    }
+    free(name);
+    if (!found || !agree) *w = *h = 0;
+}
+
 static int skip_image(const char* logical) {
     if (!ends_with_ci(logical, ".png")) return 1;
     if (!strncmp(logical, "img/tilesets/", 13)) return 1;
@@ -210,7 +247,7 @@ static int skip_image(const char* logical) {
     return 0;
 }
 
-int assets_build_images(Game* g, Node* atlas, Pack* pack, int jobs) {
+int assets_build_images(Game* g, Node* db, Node* atlas, Pack* pack, int jobs) {
     Node* source = atlas ? node_get(atlas, "source") : NULL;
     ImageJob* list = NULL;
     int n = 0;
@@ -277,6 +314,7 @@ int assets_build_images(Game* g, Node* atlas, Pack* pack, int jobs) {
         list[i].order = i;
         list[i].key = keys[i];
         list[i].sheet = -1;
+        if (g_target->id == TARGET_WII) battler_cell(db, list[i].logical, &list[i].cell_w, &list[i].cell_h);
         const char* an = list[i].atlas_entry ? node_strv(node_get(list[i].atlas_entry, "atlasName")) : NULL;
         for (int k = 0; an && k < g_nsheets; k++) {
             if (!strcmp(g_sheets[k].name, an)) {

@@ -330,7 +330,7 @@ static int build(Game* g, const char* out, const Options* o, char** target_out) 
     pack_flush(&pack);
     log_msg("images");
     progress_phase("images", NULL);
-    log_msg("  %d images", assets_build_images(g, atlas, &pack, o->jobs));
+    log_msg("  %d images", assets_build_images(g, db, atlas, &pack, o->jobs));
     pack_flush(&pack);
     log_msg("audio");
     progress_phase("audio", g_target->id == TARGET_PS2 ? "Converting music and sounds" : NULL);
