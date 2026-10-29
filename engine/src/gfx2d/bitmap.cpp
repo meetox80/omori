@@ -500,6 +500,15 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
     auto round_pos = [](float v) { return (uint32_t)(int)(v + 0.5f); };
     const uint16_t* atlas = f->pixels();
     if (!atlas) return;
+    struct TextInk {
+        uint32_t key;
+        uint32_t stroke;
+        uint32_t fill;
+        bool has_stroke;
+        bool has_fill;
+    };
+    TextInk inks[256];
+    for (TextInk& ink : inks) ink.key = 0xFFFFFFFFu;
     double pen = tx;
     double top_phys = (baseline - f->ascent * scale) * S;
     for (uint32_t cp : cps) {
@@ -546,27 +555,33 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
                     }
                     int alpha = (int)(sp >> 8);
                     if (!alpha) continue;
-                    int lum = (int)(sp & 255);
-                    float fill, stroke;
-                    if (f->outline) {
-                        float total = alpha / 255.0f;
-                        fill = std::min(1.0f, (float)lum / (float)alpha);
-                        stroke = fill < 1.0f ? std::clamp((total - fill) / (1.0f - fill), 0.0f, 1.0f) : 1.0f;
-                    } else {
-                        fill = alpha / 255.0f;
-                        stroke = 0;
+                    TextInk& ink = inks[(sp ^ (sp >> 8)) & 255];
+                    if (ink.key != sp) {
+                        ink.key = sp;
+                        int lum = (int)(sp & 255);
+                        float fill, stroke;
+                        if (f->outline) {
+                            float total = alpha / 255.0f;
+                            fill = std::min(1.0f, (float)lum / (float)alpha);
+                            stroke = fill < 1.0f ? std::clamp((total - fill) / (1.0f - fill), 0.0f, 1.0f) : 1.0f;
+                        } else {
+                            fill = alpha / 255.0f;
+                            stroke = 0;
+                        }
+                        ink.has_stroke = oa_f > 0 && stroke > 0;
+                        if (ink.has_stroke) {
+                            float a1 = oa_f * stroke;
+                            ink.stroke = round_pos(ocr * a1) | (round_pos(ocg * a1) << 8) | (round_pos(ocb * a1) << 16) | (round_pos(255 * a1) << 24);
+                        }
+                        ink.has_fill = fill > 0;
+                        if (ink.has_fill) {
+                            float a2 = fa_f * fill;
+                            ink.fill = round_pos(tcr * a2) | (round_pos(tcg * a2) << 8) | (round_pos(tcb * a2) << 16) | (round_pos(255 * a2) << 24);
+                        }
                     }
                     uint32_t d = row[tx2];
-                    if (oa_f > 0 && stroke > 0) {
-                        float a1 = oa_f * stroke;
-                        uint32_t sv = round_pos(ocr * a1) | (round_pos(ocg * a1) << 8) | (round_pos(ocb * a1) << 16) | (round_pos(255 * a1) << 24);
-                        d = over(d, sv);
-                    }
-                    if (fill > 0) {
-                        float a2 = fa_f * fill;
-                        uint32_t sv = round_pos(tcr * a2) | (round_pos(tcg * a2) << 8) | (round_pos(tcb * a2) << 16) | (round_pos(255 * a2) << 24);
-                        d = over(d, sv);
-                    }
+                    if (ink.has_stroke) d = over(d, ink.stroke);
+                    if (ink.has_fill) d = over(d, ink.fill);
                     row[tx2] = d;
                 }
             }
