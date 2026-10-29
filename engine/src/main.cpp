@@ -2,6 +2,7 @@
 #include "core/fs.h"
 #include "core/image.h"
 #include "core/loader.h"
+#include "core/workers.h"
 #include "gfx2d/bitmap.h"
 #include "gfx2d/text.h"
 #include "js/random.h"
@@ -64,6 +65,7 @@ int main(int argc, char** argv) {
     rpg::install_bindings();
     rpg::scene_manager::run(ui::boot_scene());
     if (plat::options().dump_audio > 0) audio::write_dump(fs::save_path("audio_dump.raw"));
+    workers::stop();
     plat::shutdown();
     return 0;
 }

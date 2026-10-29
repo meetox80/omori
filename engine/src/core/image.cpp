@@ -15,6 +15,7 @@
 #include "bytes.h"
 #include "fs.h"
 #include "loader.h"
+#include "workers.h"
 
 Image::~Image() {
     for (auto& c : chunks) {
@@ -652,7 +653,7 @@ static void unlock_main() {
 }
 
 static void worker() {
-    for (;;) {
+    while (workers::live()) {
         std::string job;
         ChunkJob chunk;
         bool has_chunk = false;
@@ -687,13 +688,14 @@ static void worker() {
         g_working.clear();
         plat::mutex_unlock(g_mutex);
     }
+    workers::leave();
 }
 
 static void ensure_worker() {
     if (g_worker) return;
     g_worker = true;
     g_mutex = plat::mutex_create();
-    plat::start_thread(worker);
+    workers::start(plat::start_thread, worker);
 }
 
 static void* take_chunk(const std::string& source, size_t index) {

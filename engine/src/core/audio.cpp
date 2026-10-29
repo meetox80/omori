@@ -27,6 +27,7 @@
 #include "bytes.h"
 #include "fs.h"
 #include "profile.h"
+#include "workers.h"
 
 namespace audio {
 
@@ -550,7 +551,7 @@ static bool feed(Stream* s) {
 
 static void feeder() {
     std::vector<std::shared_ptr<Stream>> live, dead;
-    for (;;) {
+    while (workers::live()) {
         plat::mutex_lock(g_feed_mutex);
         for (size_t i = 0; i < g_feeds.size();) {
             if (g_feeds[i].use_count() == 1) {
@@ -571,6 +572,7 @@ static void feeder() {
         live.clear();
         plat::sleep_ms(urgent ? 1 : 8);
     }
+    workers::leave();
 }
 
 static void prepare_ahead(Stream* s) {
@@ -832,7 +834,7 @@ static void open_job(const LoadJob& job, LoadResult& r, std::unique_ptr<Stream> 
 }
 
 static void loader() {
-    for (;;) {
+    while (workers::live()) {
         plat::mutex_lock(g_load_mutex);
         if (g_load_jobs.empty()) {
             plat::mutex_unlock(g_load_mutex);
@@ -866,12 +868,13 @@ static void loader() {
         g_load_results.push_back(std::move(r));
         plat::mutex_unlock(g_load_mutex);
     }
+    workers::leave();
 }
 
 static void enqueue(LoadJob job) {
     if (!g_load_mutex) {
         g_load_mutex = plat::mutex_create();
-        plat::start_thread(loader);
+        workers::start(plat::start_thread, loader);
     }
     plat::mutex_lock(g_load_mutex);
     g_load_jobs.push_back(std::move(job));
@@ -961,7 +964,7 @@ void init() {
     if constexpr (profile::AUDIO_AHEAD > 0) {
         static_assert((profile::AUDIO_AHEAD & (profile::AUDIO_AHEAD - 1)) == 0, "AUDIO_AHEAD must be a power of two");
         g_feed_mutex = plat::mutex_create();
-        g_feeding = audio_out::start_feeder(feeder);
+        g_feeding = workers::start(audio_out::start_feeder, feeder);
     }
     audio_out::start(mix);
 }

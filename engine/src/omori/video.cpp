@@ -11,6 +11,7 @@
 #include "../core/audio.h"
 #include "../core/fs.h"
 #include "../core/image.h"
+#include "../core/workers.h"
 #include "../platform/gfx.h"
 #include "../platform/movie_decode.h"
 #include "../platform/platform.h"
@@ -166,15 +167,16 @@ bool run_job() {
 }
 
 void worker() {
-    for (;;) {
+    while (workers::live()) {
         if (!run_job()) plat::sleep_ms(3);
     }
+    workers::leave();
 }
 
 void ensure_worker() {
     if (!g_lock) g_lock = plat::mutex_create();
     if (g_worker) return;
-    g_worker = movie_decode::start_thread(worker);
+    g_worker = workers::start(movie_decode::start_thread, worker);
     if (!g_worker) {
         static bool logged = false;
         if (!logged) plat::log("movie: decoder thread unavailable, decoding on the main thread");

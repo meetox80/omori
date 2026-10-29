@@ -12,6 +12,7 @@
 
 #include "../core/fs.h"
 #include "../core/value.h"
+#include "../core/workers.h"
 #include "../platform/gfx.h"
 #include "../platform/platform.h"
 
@@ -169,7 +170,7 @@ static std::vector<std::shared_ptr<AtlasLoad>> g_loads;
 static bool g_loader = false;
 
 static void atlas_loader() {
-    for (;;) {
+    while (workers::live()) {
         std::shared_ptr<AtlasLoad> job;
         plat::mutex_lock(g_load_mutex);
         for (auto& l : g_loads) {
@@ -203,6 +204,7 @@ static void atlas_loader() {
         job->finished = plat::time_us();
         plat::mutex_unlock(g_load_mutex);
     }
+    workers::leave();
 }
 
 static void expire_loads_locked() {
@@ -243,7 +245,7 @@ void prefetch_font(const std::string& face, int size, bool outline) {
     if (!g_loader) {
         g_loads.reserve(MAX_ATLAS_LOADS);
         g_load_mutex = plat::mutex_create();
-        if (!g_load_mutex || !plat::start_thread(atlas_loader)) return;
+        if (!g_load_mutex || !workers::start(plat::start_thread, atlas_loader)) return;
         g_loader = true;
     }
     auto l = std::make_shared<AtlasLoad>();
