@@ -19,3 +19,21 @@ void __atomic_add(volatile _Atomic_word* mem, int val) noexcept {
 }
 
 }
+
+extern "C" unsigned int __atomic_fetch_add_4(volatile void* mem, unsigned int val, int) {
+    volatile unsigned int* p = (volatile unsigned int*)mem;
+    int enabled = DIntr();
+    unsigned int old = *p;
+    *p = old + val;
+    if (enabled) EIntr();
+    return old;
+}
+
+extern "C" unsigned int __atomic_fetch_sub_4(volatile void* mem, unsigned int val, int) {
+    volatile unsigned int* p = (volatile unsigned int*)mem;
+    int enabled = DIntr();
+    unsigned int old = *p;
+    *p = old - val;
+    if (enabled) EIntr();
+    return old;
+}
