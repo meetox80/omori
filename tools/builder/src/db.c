@@ -318,7 +318,7 @@ static void process_objects(Node* arr, const char* kind) {
 
 static const char* NOTE_TAGS[][3] = {{"skills", "<ChainSkill:(.+),(.+)>", "i"},
                                      {"enemies", "<Position Offset [XY]:[ ]*-?\\d+>", "i"},
-                                     {"items", "<Is Toy>", ""},
+                                     {"items", "<Is Toy>", "i"},
                                      {"actors", NULL, NULL},
                                      {"classes", NULL, NULL},
                                      {"weapons", NULL, NULL},
