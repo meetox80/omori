@@ -162,13 +162,13 @@ void Container::update() {
     for (DisplayObject* c : snap.items) c->update();
 }
 
-void Container::render_children(const RenderState& rs) {
+void Container::render_children(const RenderState& rs, bool (*pick)(const DisplayObject&)) {
     if (comparator && children.size() > 1 && !std::is_sorted(children.begin(), children.end(), comparator))
         std::stable_sort(children.begin(), children.end(), comparator);
     if (children.empty()) return;
     Iteration snap(*this);
     for (DisplayObject* c : snap.items) {
-        if (!c->visible || c->alpha <= 0) continue;
+        if (!c->visible || c->alpha <= 0 || (pick && !pick(*c))) continue;
         RenderState cs = rs;
         cs.world = rs.world.mul(c->local_matrix());
         cs.alpha = rs.alpha * c->alpha;

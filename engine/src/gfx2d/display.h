@@ -114,7 +114,7 @@ public:
     void set_child_index(DisplayObject* c, size_t index);
     void update() override;
     void render(const RenderState& rs) override;
-    void render_children(const RenderState& rs);
+    void render_children(const RenderState& rs, bool (*pick)(const DisplayObject&) = nullptr);
     std::function<bool(const DisplayPtr&, const DisplayPtr&)> comparator;
 
 private:

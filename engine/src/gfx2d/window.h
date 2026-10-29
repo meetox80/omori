@@ -118,6 +118,7 @@ public:
         width = w;
         height = h;
     }
+    void render(const RenderState& rs) override;
 };
 
 }

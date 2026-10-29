@@ -333,4 +333,12 @@ void Window::render(const RenderState& rs) {
     render_children(rs);
 }
 
+void WindowLayer::render(const RenderState& rs) {
+    render_children(rs, [](const DisplayObject& c) {
+        const Window* w = dynamic_cast<const Window*>(&c);
+        return w && w->openness() > 0;
+    });
+    render_children(rs, [](const DisplayObject& c) { return !dynamic_cast<const Window*>(&c); });
+}
+
 }
