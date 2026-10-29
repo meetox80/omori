@@ -287,9 +287,20 @@ std::string WindowBase::convert_macro_text(std::string text) {
     text = tmp;
     if (text.find(ESC) != std::string::npos) {
         const auto& list = macros();
+        std::string lower;
+        bool after_esc[256];
+        auto rescan = [&] {
+            lower = rpg::to_lower(text);
+            std::fill(after_esc, after_esc + 256, false);
+            for (size_t p = lower.find(ESC); p != std::string::npos && p + 1 < lower.size(); p = lower.find(ESC, p + 1))
+                after_esc[(unsigned char)lower[p + 1]] = true;
+        };
+        rescan();
         for (size_t i = 1; i < list.size(); i++) {
-            if (list[i].lower_code.empty()) continue;
-            text = replace_ci_all(text, list[i].lower_code, list[i].text);
+            const std::string& code = list[i].lower_code;
+            if (code.empty() || (code.size() > 1 && !after_esc[(unsigned char)code[1]]) || lower.find(code) == std::string::npos) continue;
+            text = replace_ci_all(text, code, list[i].text);
+            rescan();
         }
     }
     size_t p;
@@ -379,12 +390,25 @@ std::string WindowBase::convert_extra_escape_characters(std::string text) {
                          {"EGRD", "TcEgrd", true},    {"EREC", "TcErec", true},    {"EPHA", "TcEpha", true},    {"EMCR", "TcEmcr", true},
                          {"ETCR", "TcEtcr", true},    {"EPDR", "TcEpdr", true},    {"EMDR", "TcEmdr", true},    {"EFDR", "TcEfdr", true},
                          {"EEXR", "TcEexr", true}};
+    static const std::vector<std::string> needles = [] {
+        std::vector<std::string> out;
+        for (auto& lc : lunatic_codes) out.push_back(rpg::to_lower(std::string(1, ESC) + lc.code + "["));
+        return out;
+    }();
     bool any_esc = text.find(ESC) != std::string::npos;
+    std::string lower;
+    bool lower_stale = true;
     auto run_codes = [&](bool enemy, int from, int to) {
         if (!any_esc) return;
         if (enemy && !rpg::party_in_battle()) return;
         for (int i = from; i < to; i++) {
             auto& lc = lunatic_codes[i];
+            if (lower_stale) {
+                lower = rpg::to_lower(text);
+                lower_stale = false;
+            }
+            if (lower.find(needles[(size_t)i]) == std::string::npos) continue;
+            lower_stale = true;
             std::string pat = std::string(1, ESC) + lc.code + "\\[(\\d+)\\]";
             text = re::replace_fn(pat.c_str(), "gi", text, [&](const re::Groups& g) {
                 js::Val x;

@@ -54,6 +54,7 @@ public:
     bool is_error() const { return missing_; }
     const std::string& key() const { return key_; }
     Image* image();
+    void warm();
     float fx();
     float fy();
 

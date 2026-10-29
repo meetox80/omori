@@ -132,6 +132,7 @@ void draw_grid(Texture* tex, const Vertex* v, int cols, int rows, Blend blend, b
 void sprite_lut(Texture* tex, int channel, const uint32_t* lut, float u0, float v0, float u1, float v1, float x0, float y0, float x1, float y1, Blend blend);
 void set_color_mask(uint32_t protect_rgb);
 void set_wrap(bool repeat);
+void set_alpha_weight(bool on);
 void stencil_clear(int x0, int y0, int x1, int y1);
 void set_stencil(Stencil mode);
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../core/image.h"
 #include "../rpg/audio_manager.h"
 #include "../rpg/data.h"
 #include "../rpg/game.h"
@@ -96,8 +97,30 @@ void SpriteAnimation::setup_rate() { rate_ = (int)yparam_num("AnimationRate", 4)
 void SpriteAnimation::setup_duration() { duration_ = (int)(*animation_)["frames"].size() * rate_ + 1; }
 
 void SpriteAnimation::load_bitmaps() {
+    bitmap1_.reset();
+    bitmap2_.reset();
+    loading_ = profile::BACKGROUND_DECODE;
+    if (!loading_) {
+        bitmap1_ = load_animation((*animation_)["animation1Name"].string());
+        bitmap2_ = load_animation((*animation_)["animation2Name"].string());
+        return;
+    }
+    for (const char* key : {"animation1Name", "animation2Name"}) {
+        const std::string& name = (*animation_)[key].string();
+        if (!name.empty()) images::prefetch("img/animations", name);
+    }
+}
+
+bool SpriteAnimation::is_ready() {
+    if (!loading_) return true;
+    for (const char* key : {"animation1Name", "animation2Name"}) {
+        const std::string& name = (*animation_)[key].string();
+        if (!name.empty() && images::loading(images::resolve("img/animations", name, ".png"))) return false;
+    }
+    loading_ = false;
     bitmap1_ = load_animation((*animation_)["animation1Name"].string());
     bitmap2_ = load_animation((*animation_)["animation2Name"].string());
+    return true;
 }
 
 void SpriteAnimation::create_sprites() {

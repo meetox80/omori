@@ -465,6 +465,40 @@ void Sprite::render_self(const RenderState& rs) {
     off.tx = -anchor_x * real_frame_.width;
     off.ty = -anchor_y * real_frame_.height;
     m = m.mul(off);
+    if (gfx::current_target() == gfx::Surface::Screen) {
+        float xs[4], ys[4];
+        screen_point(m, 0, 0, xs[0], ys[0]);
+        screen_point(m, real_frame_.width, 0, xs[1], ys[1]);
+        screen_point(m, 0, real_frame_.height, xs[2], ys[2]);
+        screen_point(m, real_frame_.width, real_frame_.height, xs[3], ys[3]);
+        float sw = (float)gfx::surface_width(gfx::Surface::Screen), sh = (float)gfx::surface_height(gfx::Surface::Screen);
+        if (*std::max_element(xs, xs + 4) <= 0 || *std::min_element(xs, xs + 4) >= sw || *std::max_element(ys, ys + 4) <= 0 ||
+            *std::min_element(ys, ys + 4) >= sh)
+            return;
+    }
+    if constexpr (profile::GPU_TINT) {
+        gfx::Blend blend = blend_of(blend_mode);
+        bool plain_tone = !color_tone_[0] && !color_tone_[1] && !color_tone_[2] && !color_tone_[3];
+        if (blend_color_[3] > 0 && plain_tone && (blend == gfx::Blend::Normal || blend == gfx::Blend::Add)) {
+            tinted_.reset();
+            tint_dirty_ = true;
+            int a = std::clamp((int)std::lround(rs.alpha * 255.0), 0, 255);
+            if (a <= 0) return;
+            double a3 = std::clamp(blend_color_[3], 0.0, 255.0) / 255.0;
+            int keep = (int)std::lround(a * (1 - a3)), mix = (int)std::lround(a * a3);
+            uint32_t rgb = (uint32_t)clamp8(blend_color_[0]) | ((uint32_t)clamp8(blend_color_[1]) << 8) | ((uint32_t)clamp8(blend_color_[2]) << 16);
+            bitmap_->touch();
+            Image* img = bitmap_->image();
+            gfx::set_alpha_weight(true);
+            draw_chunks(img, real_frame_.x, real_frame_.y, real_frame_.width, real_frame_.height, m, gfx::rgba(keep, keep, keep, a), false, 0, 0, blend,
+                        bitmap_->smooth);
+            gfx::set_alpha_weight(false);
+            if (mix > 0)
+                draw_chunks(img, real_frame_.x, real_frame_.y, real_frame_.width, real_frame_.height, m, 0, true, rgb, mix, gfx::Blend::Add,
+                            bitmap_->smooth);
+            return;
+        }
+    }
     if (has_tint()) {
         int ver = bitmap_->version;
         if (tint_dirty_ || ver != tint_version_) {

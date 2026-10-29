@@ -937,7 +937,9 @@ void SpriteActor::update_bitmap() {
         const Value& sv = actor_->actor()["_sideviewBattler"];
         std::string file = name;
         if (sv.is_obj() && !sv["filename"].string().empty() && !sv["default"].truthy()) file = sv["filename"].string();
-        main_sprite->set_bitmap(load_folder("sv_actors", file));
+        g2d::BitmapPtr b = load_folder("sv_actors", file);
+        b->warm();
+        main_sprite->set_bitmap(b);
         adjust_anchor();
     }
 }
@@ -1305,6 +1307,7 @@ void SpriteEnemy::update_sv_bitmap() {
         created_empty_main_sprite_ = false;
         sv_battler_name_ = name;
         g2d::BitmapPtr b = load_folder("sv_actors", name);
+        b->warm();
         if (yparam_bool("SVESmoothing")) b->smooth = true;
         main_sprite->set_bitmap(b);
         adjust_anchor();

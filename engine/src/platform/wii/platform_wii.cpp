@@ -362,10 +362,13 @@ static void* checked_alloc(size_t size) {
     void* p = try_alloc(size);
     if (!p && g_low_memory && !g_in_low_memory && LWP_GetSelf() == g_main_thread) {
         g_in_low_memory = true;
-        g_low_memory();
+        while (!p && wii::evict_image()) p = try_alloc(size);
+        if (!p) {
+            g_low_memory();
+            p = try_alloc(size);
+            if (p) plat::log("low memory: freed caches for %u bytes", (unsigned)size);
+        }
         g_in_low_memory = false;
-        p = try_alloc(size);
-        if (p) plat::log("low memory: freed caches for %u bytes", (unsigned)size);
     }
     if (!p) {
         plat::log("out of memory: %u bytes requested, heap used %u of %u KB", (unsigned)size, (unsigned)(plat::heap_used() / 1024),

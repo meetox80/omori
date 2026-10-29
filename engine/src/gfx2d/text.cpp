@@ -55,6 +55,18 @@ static bool load_font_format(fs::DataFile* f, const uint8_t* hd, int& w, int& h,
     return ok;
 }
 
+static bool atlas_extent(const std::string& rel, int& w, int& h) {
+    fs::DataFile* f = fs::open_data(rel);
+    if (!f) return false;
+    uint8_t hd[20];
+    bool ok = fs::data_read(f, hd, 20) == 20 && std::memcmp(hd, "TTEX", 4) == 0;
+    fs::data_close(f);
+    if (!ok) return false;
+    w = rd16(&hd[8]);
+    h = rd16(&hd[10]);
+    return true;
+}
+
 static bool load_linear(const std::string& rel, int& w, int& h, std::vector<uint16_t>& out) {
     if (fs::DataFile* f = fs::open_data(rel)) {
         uint8_t hd[20];
@@ -173,6 +185,9 @@ static void atlas_loader() {
         }
         int w = 0, h = 0;
         std::vector<uint16_t> px;
+        plat::mutex_lock(g_load_mutex);
+        px.swap(job->px);
+        plat::mutex_unlock(g_load_mutex);
         bool ok = false;
         try {
             ok = load_linear(job->path, w, h, px);
@@ -214,8 +229,8 @@ static bool take_prefetched(FontFace* face, std::vector<uint16_t>& out, int& w, 
         }
         g_loads.erase(it);
         plat::mutex_unlock(g_load_mutex);
-        if (!l->done || !l->ok) return false;
         out.swap(l->px);
+        if (!l->done || !l->ok) return false;
         w = l->w;
         h = l->h;
         return true;
@@ -237,7 +252,20 @@ void prefetch_font(const std::string& face, int size, bool outline) {
     plat::mutex_lock(g_load_mutex);
     expire_loads_locked();
     bool known = std::any_of(g_loads.begin(), g_loads.end(), [f](const std::shared_ptr<AtlasLoad>& x) { return x->face == f; });
-    if (!known && g_loads.size() < MAX_ATLAS_LOADS) g_loads.push_back(std::move(l));
+    bool room = g_loads.size() < MAX_ATLAS_LOADS;
+    plat::mutex_unlock(g_load_mutex);
+    if (known || !room) return;
+    if (profile::BACKGROUND_DECODE) {
+        int w = 0, h = 0;
+        if (!atlas_extent(l->path, w, h)) return;
+        try {
+            l->px.reserve((size_t)w * h);
+        } catch (const std::bad_alloc&) {
+            return;
+        }
+    }
+    plat::mutex_lock(g_load_mutex);
+    if (g_loads.size() < MAX_ATLAS_LOADS) g_loads.push_back(std::move(l));
     plat::mutex_unlock(g_load_mutex);
 }
 

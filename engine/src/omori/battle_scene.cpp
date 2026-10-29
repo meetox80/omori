@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../core/image.h"
 #include "../js/vm.h"
 #include "../rpg/audio_manager.h"
 #include "../rpg/bind_util.h"
@@ -70,6 +71,7 @@ void SceneBattle::create() {
 }
 
 void SceneBattle::create_display_objects() {
+    if (profile::BACKGROUND_DECODE) images::prefetch("img/system", "Damage");
     spriteset = std::make_shared<SpritesetBattle>();
     spriteset->scene = this;
     refs().spriteset = spriteset.get();

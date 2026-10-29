@@ -41,7 +41,7 @@ public:
     void remove();
     void update() override;
     bool is_playing() const { return duration_ > 0; }
-    bool is_ready() const { return true; }
+    bool is_ready();
     g2d::Sprite* target() const { return target_; }
     const Value* animation() const { return animation_; }
     static void begin_frame_checks();
@@ -58,6 +58,7 @@ private:
     int screen_flash_duration_ = 0;
     int hiding_duration_ = 0;
     g2d::BitmapPtr bitmap1_, bitmap2_;
+    bool loading_ = false;
     std::vector<g2d::SpritePtr> cell_sprites_;
     std::shared_ptr<g2d::ScreenSprite> screen_flash_sprite_;
     bool duplicated_ = false;

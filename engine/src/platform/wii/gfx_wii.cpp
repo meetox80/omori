@@ -1,5 +1,6 @@
 #include "../gfx.h"
 #include "../common/border_tiles.h"
+#include "wii.h"
 
 #include <gccore.h>
 #include <malloc.h>
@@ -18,6 +19,7 @@ namespace gfx {
 constexpr int MAX_VTX = 4096;
 constexpr size_t FIFO_BYTES = 512 * 1024;
 constexpr size_t RING_BYTES = 6u << 20;
+constexpr int RING_IDLE_FRAMES = 300;
 
 struct Texture {
     int w = 0;
@@ -39,7 +41,7 @@ struct Vtx {
     uint32_t color;
 };
 
-enum class Src : uint8_t { Color, Texture, Flat, Gray, Replace };
+enum class Src : uint8_t { Color, Texture, Weighted, Flat, Gray, Replace };
 enum class Term : uint8_t { None, Zero, One, Alpha, ClearCopy, ClearAlpha, AddMasked };
 
 struct SurfaceInfo {
@@ -62,12 +64,14 @@ static bool g_frame_pending = false;
 static bool g_invalidate = false;
 static uint32_t g_protect = 0;
 static bool g_wrap = false;
+static bool g_weighted = false;
 static Stencil g_stencil = Stencil::Off;
 static int g_sx0 = 0, g_sy0 = 0, g_sx1 = SCREEN_W, g_sy1 = SCREEN_H;
 static std::vector<Texture*> g_garbage;
 static uint8_t* g_ring = nullptr;
 static size_t g_ring_used = 0;
 static size_t g_ring_peak = 0;
+static int g_ring_idle = 0;
 static int g_batches = 0;
 
 static Vtx g_batch[MAX_VTX];
@@ -199,6 +203,13 @@ static inline uint32_t get_texel(const uint8_t* data, int tw, int x, int y) {
 
 static void* ring_alloc(size_t bytes) {
     bytes = (bytes + 31) & ~(size_t)31;
+    g_ring_idle = 0;
+    if (!g_ring) {
+        g_ring = (uint8_t*)alloc(RING_BYTES);
+        while (!g_ring && wii::evict_image()) g_ring = (uint8_t*)alloc(RING_BYTES);
+        if (!g_ring) return nullptr;
+        g_ring_used = 0;
+    }
     if (g_ring_used + bytes > RING_BYTES) {
         GX_DrawDone();
         g_ring_used = 0;
@@ -478,7 +489,6 @@ void init() {
     }
     setup_surface_tex(g_scratch[0], SCREEN_W, SCREEN_H);
     setup_surface_tex(g_scratch[1], SCREEN_W, SCREEN_H);
-    g_ring = (uint8_t*)memalign(32, RING_BYTES);
     viewport(SCREEN_W, SCREEN_H);
     GX_SetScissor(0, 0, SCREEN_W, SCREEN_H);
 }
@@ -511,9 +521,15 @@ static void setup_tev(Src src, Term term, uint32_t keep_rgb, int level) {
             n++;
             break;
         case Src::Texture:
+        case Src::Weighted:
             stage_order(n, true);
             GX_SetTevColorIn((u8)n, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO);
             GX_SetTevAlphaIn((u8)n, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA, GX_CA_ZERO);
+            n++;
+            if (src == Src::Texture) break;
+            stage_order(n, true);
+            GX_SetTevColorIn((u8)n, GX_CC_ZERO, GX_CC_CPREV, GX_CC_TEXA, GX_CC_ZERO);
+            GX_SetTevAlphaIn((u8)n, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
             n++;
             break;
         case Src::Replace:
@@ -722,7 +738,7 @@ static void flush() {
     int n = g_count;
     g_count = 0;
     if (!g_frame_open || scissor_empty()) return;
-    Src src = g_tex ? (g_flat ? Src::Flat : Src::Texture) : Src::Color;
+    Src src = g_tex ? (g_flat ? Src::Flat : g_weighted ? Src::Weighted : Src::Texture) : Src::Color;
     Blend b = g_blend;
     if (g_flat) b = b == Blend::Add ? Blend::Add : b == Blend::Subtract ? Blend::Subtract : Blend::Normal;
     draw_batch(src, g_tex, b, g_smooth, g_batch, n, g_quads);
@@ -900,11 +916,16 @@ void begin_frame(uint32_t clear_color) {
     present();
     collect_garbage();
     g_ring_used = 0;
+    if (g_ring && ++g_ring_idle > RING_IDLE_FRAMES) {
+        release(g_ring);
+        g_ring = nullptr;
+    }
     g_count = 0;
     g_tex = nullptr;
     g_target = Surface::Screen;
     g_protect = 0;
     g_wrap = false;
+    g_weighted = false;
     g_stencil = Stencil::Off;
     g_frame_open = true;
     viewport(SCREEN_W, SCREEN_H);
@@ -958,7 +979,9 @@ bool reclaim_memory() {
     return true;
 }
 
-void set_evict_handler(bool (*)()) {}
+static bool (*g_evict)() = nullptr;
+
+void set_evict_handler(bool (*fn)()) { g_evict = fn; }
 
 double take_batch_count() {
     double n = g_batches;
@@ -1150,6 +1173,12 @@ void set_wrap(bool repeat) {
     g_wrap = repeat;
 }
 
+void set_alpha_weight(bool on) {
+    if (on == g_weighted) return;
+    flush();
+    g_weighted = on;
+}
+
 void set_stencil(Stencil mode) {
     flush();
     g_stencil = mode;
@@ -1223,6 +1252,7 @@ void sprite_lut(Texture* tex, int channel, const uint32_t* lut, float u0, float 
     lt.th = (lt.h + 3) & ~3;
     lt.bytes = (size_t)lt.tw * lt.th * 4;
     lt.data = (uint8_t*)ring_alloc(lt.bytes);
+    if (!lt.data) return;
     int shift = std::clamp(channel, 0, 3) * 8;
     for (int y = 0; y < lt.th; y++) {
         int sy = ty0 + std::min(y, lt.h - 1);
@@ -1241,6 +1271,16 @@ void sprite_lut(Texture* tex, int channel, const uint32_t* lut, float u0, float 
     g_wrap = false;
     draw_batch(Src::Texture, &lt, blend, false, q, 4, true);
     g_wrap = wrap;
+}
+
+}
+
+namespace wii {
+
+bool evict_image() {
+    if (!gfx::g_evict || !gfx::g_evict()) return false;
+    gfx::reclaim_memory();
+    return true;
 }
 
 }

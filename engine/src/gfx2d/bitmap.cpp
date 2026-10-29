@@ -85,6 +85,10 @@ BitmapPtr Bitmap::load(const std::string& key) {
 
 BitmapPtr Bitmap::empty() { return create(1, 1); }
 
+void Bitmap::warm() {
+    if (profile::BACKGROUND_DECODE && !canvas_ && !key_.empty() && !missing_) images::warm_path(key_);
+}
+
 int Bitmap::width() const { return lw_; }
 int Bitmap::height() const { return lh_; }
 
@@ -128,16 +132,17 @@ void Bitmap::resize(int w, int h) {
 
 static inline uint32_t div255(uint32_t v) { return (v + 1 + (v >> 8)) >> 8; }
 
+static inline uint32_t div255x2(uint32_t v) { return ((v + 0x00010001u + ((v >> 8) & 0x00FF00FFu)) >> 8) & 0x00FF00FFu; }
+static inline uint32_t clamp255x2(uint32_t v) { return (v | (((v >> 8) & 0x00010001u) * 255u)) & 0x00FF00FFu; }
+
 static inline uint32_t over(uint32_t d, uint32_t s) {
     uint32_t sa = s >> 24;
     if (sa == 255 || d == 0) return s;
     if (sa == 0 && (s & 0xFFFFFF) == 0) return d;
     uint32_t inv = 255 - sa;
-    uint32_t r = (s & 255) + div255((d & 255) * inv + 127);
-    uint32_t g = ((s >> 8) & 255) + div255(((d >> 8) & 255) * inv + 127);
-    uint32_t b = ((s >> 16) & 255) + div255(((d >> 16) & 255) * inv + 127);
-    uint32_t a = sa + div255((d >> 24) * inv + 127);
-    return std::min<uint32_t>(r, 255u) | (std::min<uint32_t>(g, 255u) << 8) | (std::min<uint32_t>(b, 255u) << 16) | (std::min<uint32_t>(a, 255u) << 24);
+    uint32_t rb = clamp255x2((s & 0x00FF00FFu) + div255x2((d & 0x00FF00FFu) * inv + 0x007F007Fu));
+    uint32_t ga = clamp255x2(((s >> 8) & 0x00FF00FFu) + div255x2(((d >> 8) & 0x00FF00FFu) * inv + 0x007F007Fu));
+    return rb | (ga << 8);
 }
 
 static inline uint32_t scale_px(uint32_t p, int k) {
@@ -216,11 +221,15 @@ void Bitmap::gradient_fill_rect(double x, double y, double w, double h, const st
         }
         ramp[(size_t)pos] = out;
     }
-    for (int yy = std::max(0, y0); yy < std::min(c.ph, y1); yy++) {
+    const int xs = std::max(0, x0), xe = std::min(c.pw, x1), ye = std::min(c.ph, y1);
+    for (int yy = std::max(0, y0); yy < ye; yy++) {
         uint32_t* row = c.row(yy);
-        for (int xx = std::max(0, x0); xx < std::min(c.pw, x1); xx++) {
-            int pos = vertical ? yy - y0 : xx - x0;
-            row[xx] = over(row[xx], ramp[(size_t)pos]);
+        if (vertical) {
+            const uint32_t v = ramp[(size_t)(yy - y0)];
+            for (int xx = xs; xx < xe; xx++) row[xx] = over(row[xx], v);
+        } else {
+            const uint32_t* r = ramp.data();
+            for (int xx = xs; xx < xe; xx++) row[xx] = over(row[xx], r[xx - x0]);
         }
     }
     c.dirty = true;
@@ -504,11 +513,42 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
         uint32_t key;
         uint32_t stroke;
         uint32_t fill;
-        bool has_stroke;
-        bool has_fill;
+        uint32_t solo;
     };
-    TextInk inks[256];
-    for (TextInk& ink : inks) ink.key = 0xFFFFFFFFu;
+    struct InkSet {
+        float from[9];
+        uint32_t count;
+        uint64_t used;
+        std::vector<TextInk> slots;
+    };
+    constexpr int INK_BITS = 10;
+    constexpr uint32_t INK_SLOTS = 1u << INK_BITS, INK_EMPTY = 0xFFFFFFFFu;
+    static InkSet ink_sets[4];
+    static uint64_t ink_clock = 0;
+    const bool outline_font = f->outline;
+    const float ink_now[9] = {fa_f, oa_f, tcr, tcg, tcb, ocr, ocg, ocb, outline_font ? 1.0f : 0.0f};
+    InkSet* set = nullptr;
+    for (InkSet& e : ink_sets) {
+        if (!e.slots.empty() && std::equal(ink_now, ink_now + 9, e.from)) set = &e;
+    }
+    if (!set) {
+        set = &ink_sets[0];
+        for (InkSet& e : ink_sets) {
+            if (e.used < set->used) set = &e;
+        }
+        std::copy(ink_now, ink_now + 9, set->from);
+        set->slots.assign(INK_SLOTS, TextInk{INK_EMPTY, 0, 0, 0});
+        set->count = 0;
+    }
+    set->used = ++ink_clock;
+    TextInk* inks = set->slots.data();
+    const int atlas_stride = f->atlas_w;
+    const int cpw = c.pw, cph = c.ph;
+    struct ColumnSample {
+        int s0, s1;
+        float t;
+    };
+    static std::vector<ColumnSample> columns;
     double pen = tx;
     double top_phys = (baseline - f->ascent * scale) * S;
     for (uint32_t cp : cps) {
@@ -523,30 +563,40 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
         }
         const GlyphCell& q = g->phase[ph];
         if (q.w > 0 && q.h > 0) {
+            const int qw = q.w, qh = q.h, qx = q.x, qy = q.y;
             int py0 = (int)std::nearbyint(top_phys) + (int)q.oy;
             double px0 = base + q.ox;
-            int dw = squeeze < 1.0 ? std::max(1, (int)std::lround(q.w * squeeze * scale)) : (int)std::lround(q.w * scale);
-            int dh = (int)std::lround(q.h * scale);
-            if (scale == 1.0) dh = q.h;
-            if (squeeze >= 1.0 && scale == 1.0) dw = q.w;
+            int dw = squeeze < 1.0 ? std::max(1, (int)std::lround(qw * squeeze * scale)) : (int)std::lround(qw * scale);
+            int dh = (int)std::lround(qh * scale);
+            if (scale == 1.0) dh = qh;
+            if (squeeze >= 1.0 && scale == 1.0) dw = qw;
+            const int ipx = (int)px0;
+            const int x_lo = std::max(0, -ipx), x_hi = std::min(dw, cpw - ipx);
+            const bool direct = dw == qw;
+            if (!direct && x_lo < x_hi) {
+                columns.resize((size_t)dw);
+                for (int xx = x_lo; xx < x_hi; xx++) {
+                    float su = (xx + 0.5f) * qw / dw - 0.5f;
+                    float fl = std::floor(su);
+                    int s0 = std::clamp((int)fl, 0, qw - 1), s1 = std::clamp(s0 + 1, 0, qw - 1);
+                    columns[(size_t)xx] = {s0, s1, su - fl};
+                }
+            }
             for (int yy = 0; yy < dh; yy++) {
                 int ty = py0 + yy;
-                if (ty < 0 || ty >= c.ph) continue;
-                int sy = dh == q.h ? yy : std::min((int)q.h - 1, (int)((yy + 0.5) * q.h / dh));
+                if (ty < 0 || ty >= cph) continue;
+                int sy = dh == qh ? yy : std::min(qh - 1, (int)((yy + 0.5) * qh / dh));
                 uint32_t* row = c.row(ty);
-                const uint16_t* srow = atlas + (size_t)(q.y + sy) * f->atlas_w + q.x;
-                for (int xx = 0; xx < dw; xx++) {
-                    int tx2 = (int)px0 + xx;
-                    if (tx2 < 0 || tx2 >= c.pw) continue;
+                const uint16_t* srow = atlas + (size_t)(qy + sy) * atlas_stride + qx;
+                for (int xx = x_lo; xx < x_hi; xx++) {
                     uint32_t sp;
-                    if (dw == q.w) {
+                    if (direct) {
                         sp = srow[xx];
                     } else {
-                        float su = (xx + 0.5f) * q.w / dw - 0.5f;
-                        float fl = std::floor(su);
-                        int s0 = std::clamp((int)fl, 0, q.w - 1), s1 = std::clamp(s0 + 1, 0, q.w - 1);
-                        float t = su - fl;
-                        uint32_t a = srow[s0], b = srow[s1];
+                        const ColumnSample& col = columns[(size_t)xx];
+                        uint32_t a = srow[col.s0], b = srow[col.s1];
+                        if (!(a | b)) continue;
+                        float t = col.t;
                         sp = 0;
                         for (int s = 0; s < 16; s += 8) {
                             float va = (float)((a >> s) & 255), vb = (float)((b >> s) & 255);
@@ -555,12 +605,19 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
                     }
                     int alpha = (int)(sp >> 8);
                     if (!alpha) continue;
-                    TextInk& ink = inks[(sp ^ (sp >> 8)) & 255];
-                    if (ink.key != sp) {
+                    uint32_t slot = (sp * 0x9E3779B1u) >> (32 - INK_BITS);
+                    while (inks[slot].key != sp && inks[slot].key != INK_EMPTY) slot = (slot + 1) & (INK_SLOTS - 1);
+                    if (inks[slot].key != sp) {
+                        if (++set->count > INK_SLOTS * 3 / 4) {
+                            std::fill(inks, inks + INK_SLOTS, TextInk{INK_EMPTY, 0, 0, 0});
+                            set->count = 1;
+                            slot = (sp * 0x9E3779B1u) >> (32 - INK_BITS);
+                        }
+                        TextInk& ink = inks[slot];
                         ink.key = sp;
                         int lum = (int)(sp & 255);
                         float fill, stroke;
-                        if (f->outline) {
+                        if (outline_font) {
                             float total = alpha / 255.0f;
                             fill = std::min(1.0f, (float)lum / (float)alpha);
                             stroke = fill < 1.0f ? std::clamp((total - fill) / (1.0f - fill), 0.0f, 1.0f) : 1.0f;
@@ -568,21 +625,28 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
                             fill = alpha / 255.0f;
                             stroke = 0;
                         }
-                        ink.has_stroke = oa_f > 0 && stroke > 0;
-                        if (ink.has_stroke) {
+                        ink.stroke = 0;
+                        if (oa_f > 0 && stroke > 0) {
                             float a1 = oa_f * stroke;
                             ink.stroke = round_pos(ocr * a1) | (round_pos(ocg * a1) << 8) | (round_pos(ocb * a1) << 16) | (round_pos(255 * a1) << 24);
                         }
-                        ink.has_fill = fill > 0;
-                        if (ink.has_fill) {
+                        ink.fill = 0;
+                        if (fill > 0) {
                             float a2 = fa_f * fill;
                             ink.fill = round_pos(tcr * a2) | (round_pos(tcg * a2) << 8) | (round_pos(tcb * a2) << 16) | (round_pos(255 * a2) << 24);
                         }
+                        ink.solo = over(ink.stroke, ink.fill);
                     }
-                    uint32_t d = row[tx2];
-                    if (ink.has_stroke) d = over(d, ink.stroke);
-                    if (ink.has_fill) d = over(d, ink.fill);
-                    row[tx2] = d;
+                    const TextInk& ink = inks[slot];
+                    uint32_t& dst = row[ipx + xx];
+                    uint32_t d = dst;
+                    if (!d) {
+                        dst = ink.solo;
+                        continue;
+                    }
+                    if (ink.stroke) d = over(d, ink.stroke);
+                    if (ink.fill) d = over(d, ink.fill);
+                    dst = d;
                 }
             }
         }

@@ -25,6 +25,7 @@ struct Image {
     bool swizzled = false;
     bool lazy = false;
     bool packed = false;
+    bool sheet = false;
     std::vector<uint32_t> palette;
     ~Image();
 };
@@ -54,8 +55,10 @@ void forget_recent();
 void release_memory();
 void* alloc_pixels(size_t bytes);
 void preload(const std::string& folder, const std::string& name);
+void warm_path(const std::string& rel);
 void prefetch(const std::string& folder, const std::string& name);
 void prefetch_path(const std::string& rel);
+bool loading(const std::string& rel);
 void set_budget(size_t bytes);
 void set_compact(bool on);
 void trim();

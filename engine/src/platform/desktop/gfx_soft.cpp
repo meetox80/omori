@@ -33,6 +33,7 @@ static Surface g_target = Surface::Screen;
 static int g_sx0 = 0, g_sy0 = 0, g_sx1 = SCREEN_W, g_sy1 = SCREEN_H;
 static uint32_t g_protect = 0;
 static bool g_wrap = false;
+static bool g_weighted = false;
 static Stencil g_stencil = Stencil::Off;
 
 static uint32_t* g_border = nullptr;
@@ -178,6 +179,7 @@ void begin_frame(uint32_t clear_color) {
     }
     g_protect = 0;
     g_wrap = false;
+    g_weighted = false;
     g_stencil = Stencil::Off;
     reset_scissor();
 }
@@ -292,6 +294,7 @@ int surface_height(Surface s) { return g_planes[(int)s].h; }
 
 void set_color_mask(uint32_t protect_rgb) { g_protect = protect_rgb & 0xFFFFFFu; }
 void set_wrap(bool repeat) { g_wrap = repeat; }
+void set_alpha_weight(bool on) { g_weighted = on; }
 void set_stencil(Stencil mode) { g_stencil = mode; }
 
 void stencil_clear(int x0, int y0, int x1, int y1) {
@@ -342,6 +345,11 @@ static inline uint32_t sample(const Texture* t, float u, float v, bool smooth) {
 }
 
 static inline uint32_t modulate(uint32_t c, uint32_t m) {
+    if (g_weighted) {
+        uint32_t a = c >> 24, w = c & 0xFF000000u;
+        for (int s = 0; s < 24; s += 8) w |= ((((c >> s) & 255) * a + 127) / 255) << s;
+        c = w;
+    }
     if (m == 0xFFFFFFFFu) return c;
     uint32_t out = 0;
     for (int s = 0; s < 32; s += 8) {
