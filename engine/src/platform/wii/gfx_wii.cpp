@@ -309,9 +309,19 @@ Texture* texture_wrap(int w, int h, int stride, uint32_t* pixels) {
 
 void texture_touch(Texture* t) {
     if (!t || !t->cpu || !t->data) return;
+    size_t tile_row = (size_t)(t->tw >> 2) * 64;
     for (int y = 0; y < t->th; y++) {
         const uint32_t* row = t->cpu + (size_t)std::min(y, t->h - 1) * t->cpu_stride;
-        for (int x = 0; x < t->tw; x++) put_texel(t->data, t->tw, x, y, row[std::min(x, t->w - 1)]);
+        uint8_t* line = t->data + (size_t)(y >> 2) * tile_row + (size_t)(y & 3) * 8;
+        for (int x = 0; x < t->tw; x += 4) {
+            uint16_t* ar = (uint16_t*)(line + (size_t)(x >> 2) * 64);
+            uint16_t* gb = ar + 16;
+            for (int i = 0; i < 4; i++) {
+                uint32_t c = row[std::min(x + i, t->w - 1)];
+                ar[i] = (uint16_t)(((c >> 16) & 0xFF00) | (c & 0xFF));
+                gb[i] = (uint16_t)((c & 0xFF00) | ((c >> 16) & 0xFF));
+            }
+        }
     }
     DCFlushRange(t->data, t->bytes);
     g_invalidate = true;
