@@ -452,7 +452,7 @@ void GameAction::apply(GameBattler* target) {
         GameEnemy* en = static_cast<GameEnemy*>(target);
         if (hit && item().valid() && item_data()["meta"]["ScanEnemy"].truthy() && en->can_scan()) game_party().add_scanned_enemy(en->enemy_id());
     } else if (hit && result.hp_damage > 0) {
-        game_party().stress_energy_count++;
+        game_party().set_stress_energy(game_party().stress_energy_count + 1);
     }
 }
 

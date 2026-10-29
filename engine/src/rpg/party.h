@@ -163,6 +163,7 @@ public:
     ItemRef last_gained_item() const;
     void sort_members_for_tag(int leader_id);
     void add_scanned_enemy(int id);
+    void set_stress_energy(double v);
     GameActor* member_at_status_index(int index);
     bool actor_is_affected_by_state(int actor_id, int state_id);
     GameActor* get_omori();

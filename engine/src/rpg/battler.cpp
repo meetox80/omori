@@ -1918,7 +1918,7 @@ void GameActor::pay_skill_cost(const ItemRef& skill) {
     GameBattlerBase::pay_skill_cost(skill);
     if (party_in_battle()) {
         std::string ec = actor_meta(skill.data(), "EnergyCost");
-        if (!ec.empty()) game_party().stress_energy_count -= js_number(ec);
+        if (!ec.empty()) game_party().set_stress_energy(game_party().stress_energy_count - js_number(ec));
     }
 }
 

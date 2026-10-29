@@ -651,6 +651,8 @@ void GameParty::sort_members_for_tag(int leader_id) {
     game_player().refresh();
 }
 
+void GameParty::set_stress_energy(double v) { stress_energy_count = std::min(std::max(v, 0.0), 10.0); }
+
 void GameParty::add_scanned_enemy(int id) {
     if (!contains_int(scanned_enemy_list, id)) scanned_enemy_list.push_back(id);
 }

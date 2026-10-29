@@ -705,7 +705,8 @@ void bind_units() {
         k.num_field("_targetActorId", &GameParty::target_actor_id);
         k.prop(
             "_actors", [](GameParty& p) { return ints_of(p.actors); }, [](GameParty& p, const Val& v) { p.actors = ints_from(v); });
-        k.num_field("stressEnergyCount", &GameParty::stress_energy_count);
+        k.prop(
+            "stressEnergyCount", [](GameParty& p) { return Val::num(p.stress_energy_count); }, [](GameParty& p, const Val& v) { p.set_stress_energy(v.to_num()); });
         k.val_field("_questList", &GameParty::quest_list);
         k.val_field("_albumPictures", &GameParty::album_pictures);
         k.prop(
