@@ -8,7 +8,7 @@
 
 #define HEAD_SIZE 0x140
 #define TRAILER 0x60
-#define ITEMS 6
+#define ITEMS 7
 #define DESC_SIZE 0x20
 #define CHUNK (8u << 20)
 #define TYPE_NPDRMSELF 0x1
@@ -16,8 +16,8 @@
 #define TYPE_DIRECTORY 0x4
 #define OVERWRITE 0x80000000u
 
-static const char* const NAMES[ITEMS] = {"ICON0.PNG", "PARAM.SFO", "PIC1.PNG", "USRDIR", "USRDIR/EBOOT.BIN", "USRDIR/omori.pak"};
-enum { ITEM_ICON0, ITEM_SFO, ITEM_PIC1, ITEM_USRDIR, ITEM_EBOOT, ITEM_PACK };
+static const char* const NAMES[ITEMS] = {"ICON0.PNG", "PARAM.SFO", "PIC1.PNG", "SND0.AT3", "USRDIR", "USRDIR/EBOOT.BIN", "USRDIR/omori.pak"};
+enum { ITEM_ICON0, ITEM_SFO, ITEM_PIC1, ITEM_SND0, ITEM_USRDIR, ITEM_EBOOT, ITEM_PACK };
 
 static uint32_t be32(const uint8_t* p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 
@@ -110,39 +110,52 @@ static void put_eboot(Buf* out, const Buf* eboot, const char* content_id) {
     buf_zero(out, (size_t)(align16(eboot_size(len)) - len));
 }
 
-static void build_plain(Ps3Pkg* p, uint64_t pack_len) {
-    const Buf* files[ITEMS] = {&p->icon0, &p->sfo, &p->pic1, NULL, &p->eboot, NULL};
-    uint64_t name_at[ITEMS], file_at[ITEMS], size[ITEMS];
-    uint64_t cur = (uint64_t)DESC_SIZE * ITEMS;
+static int item_list(const Ps3Pkg* p, int* items) {
+    int n = 0;
     for (int i = 0; i < ITEMS; i++) {
-        name_at[i] = cur;
-        cur += align16(strlen(NAMES[i]));
+        if (i != ITEM_SND0 || p->snd0.len) items[n++] = i;
     }
-    for (int i = 0; i < ITEMS; i++) {
-        file_at[i] = cur;
-        if (i == ITEM_USRDIR) size[i] = 0;
-        else if (i == ITEM_PACK) size[i] = pack_len;
-        else if (i == ITEM_EBOOT) size[i] = eboot_size(p->eboot.len);
-        else size[i] = files[i]->len;
-        if (i != ITEM_USRDIR) cur += align16(size[i]);
+    return n;
+}
+
+static void build_plain(Ps3Pkg* p, uint64_t pack_len) {
+    const Buf* files[ITEMS] = {&p->icon0, &p->sfo, &p->pic1, &p->snd0, NULL, &p->eboot, NULL};
+    int items[ITEMS];
+    int count = item_list(p, items);
+    uint64_t name_at[ITEMS], file_at[ITEMS], size[ITEMS];
+    uint64_t cur = (uint64_t)DESC_SIZE * (uint64_t)count;
+    for (int k = 0; k < count; k++) {
+        name_at[k] = cur;
+        cur += align16(strlen(NAMES[items[k]]));
+    }
+    for (int k = 0; k < count; k++) {
+        int i = items[k];
+        file_at[k] = cur;
+        if (i == ITEM_USRDIR) size[k] = 0;
+        else if (i == ITEM_PACK) size[k] = pack_len;
+        else if (i == ITEM_EBOOT) size[k] = eboot_size(p->eboot.len);
+        else size[k] = files[i]->len;
+        if (i != ITEM_USRDIR) cur += align16(size[k]);
     }
     p->plain.len = 0;
-    for (int i = 0; i < ITEMS; i++) {
+    for (int k = 0; k < count; k++) {
+        int i = items[k];
         uint8_t desc[DESC_SIZE] = {0};
         uint32_t type = i == ITEM_USRDIR ? TYPE_DIRECTORY : i == ITEM_EBOOT ? TYPE_NPDRMSELF : TYPE_RAW;
-        put_be32(desc, (uint32_t)name_at[i]);
+        put_be32(desc, (uint32_t)name_at[k]);
         put_be32(desc + 4, (uint32_t)strlen(NAMES[i]));
-        put_be64(desc + 8, file_at[i]);
-        put_be64(desc + 16, size[i]);
+        put_be64(desc + 8, file_at[k]);
+        put_be64(desc + 16, size[k]);
         put_be32(desc + 24, OVERWRITE | type);
         buf_put(&p->plain, desc, DESC_SIZE);
     }
-    for (int i = 0; i < ITEMS; i++) {
-        size_t n = strlen(NAMES[i]);
-        buf_put(&p->plain, NAMES[i], n);
+    for (int k = 0; k < count; k++) {
+        size_t n = strlen(NAMES[items[k]]);
+        buf_put(&p->plain, NAMES[items[k]], n);
         buf_zero(&p->plain, (size_t)(align16(n) - n));
     }
-    for (int i = 0; i < ITEMS; i++) {
+    for (int k = 0; k < count; k++) {
+        int i = items[k];
         if (i == ITEM_USRDIR || i == ITEM_PACK) continue;
         if (i == ITEM_EBOOT) {
             put_eboot(&p->plain, &p->eboot, p->content_id);
@@ -153,9 +166,11 @@ static void build_plain(Ps3Pkg* p, uint64_t pack_len) {
     }
 }
 
-static size_t desc_area(void) {
-    size_t n = (size_t)DESC_SIZE * ITEMS;
-    for (int i = 0; i < ITEMS; i++) n += (size_t)align16(strlen(NAMES[i]));
+static size_t desc_area(const Ps3Pkg* p) {
+    int items[ITEMS];
+    int count = item_list(p, items);
+    size_t n = (size_t)DESC_SIZE * (size_t)count;
+    for (int k = 0; k < count; k++) n += (size_t)align16(strlen(NAMES[items[k]]));
     return n;
 }
 
@@ -258,7 +273,8 @@ static int finish_range(Ps3Pkg* p, const char* path, uint64_t pack_len, int thre
     put_be32(hdr + 8, 0xC0);
     put_be32(hdr + 12, 5);
     put_be32(hdr + 16, 0x80);
-    put_be32(hdr + 20, ITEMS);
+    int items[ITEMS];
+    put_be32(hdr + 20, (uint32_t)item_list(p, items));
     put_be64(hdr + 24, data_size + HEAD_SIZE + TRAILER);
     put_be64(hdr + 32, HEAD_SIZE);
     put_be64(hdr + 40, data_size);
@@ -269,13 +285,14 @@ static int finish_range(Ps3Pkg* p, const char* path, uint64_t pack_len, int thre
     sha1_update(&qa, p->icon0.data, p->icon0.len);
     sha1_update(&qa, p->sfo.data, p->sfo.len);
     sha1_update(&qa, p->pic1.data, p->pic1.len);
+    if (p->snd0.len) sha1_update(&qa, p->snd0.data, p->snd0.len);
     sha1_update(&qa, p->eboot.data, p->eboot.len);
     double mid = lo + (hi - lo) * 0.3;
     int ok = hash_range(f, p->pack_at, pack_len, &qa, lo, mid);
     uint8_t zero[0x50] = {0};
     sha1_update(&qa, hdr, 0x30);
     sha1_update(&qa, zero, 0x50);
-    sha1_update(&qa, p->plain.data, desc_area());
+    sha1_update(&qa, p->plain.data, desc_area(p));
     uint8_t digest[20];
     sha1_final(&qa, digest);
     memcpy(hdr + 0x60, digest, 16);
@@ -364,7 +381,9 @@ int ps3pkg_replace_eboot(const char* path, const uint8_t* eboot, size_t len, int
         buf_u8(&name, 0);
         const char* n = (const char*)name.data;
         Buf* slot = !strcmp(n, NAMES[ITEM_ICON0]) ? &p.icon0 : !strcmp(n, NAMES[ITEM_SFO]) ? &p.sfo : !strcmp(n, NAMES[ITEM_PIC1]) ? &p.pic1 : NULL;
-        if (slot) {
+        if (!strcmp(n, NAMES[ITEM_SND0])) {
+            ok = read_sealed(f, key, at, size, &p.snd0);
+        } else if (slot) {
             ok = read_sealed(f, key, at, size, slot);
             have++;
         } else if (!strcmp(n, NAMES[ITEM_PACK])) {
@@ -401,6 +420,7 @@ void ps3pkg_free(Ps3Pkg* p) {
     buf_free(&p->icon0);
     buf_free(&p->sfo);
     buf_free(&p->pic1);
+    buf_free(&p->snd0);
     buf_free(&p->eboot);
     buf_free(&p->plain);
 }

@@ -11,6 +11,7 @@ typedef struct {
     Buf icon0;
     Buf sfo;
     Buf pic1;
+    Buf snd0;
     Buf eboot;
     Buf plain;
     uint64_t pack_at;

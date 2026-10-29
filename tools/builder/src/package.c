@@ -7,6 +7,7 @@
 #include "pack.h"
 #include "ps2disc.h"
 #include "ps3pkg.h"
+#include "snd0.h"
 #include "util.h"
 #include "vpk.h"
 #include "wuhb.h"
@@ -266,6 +267,7 @@ Package* package_open(const char* out, const char* engine_path, Game* g, Node* a
             ok = ok && read_engine(TARGET_PS3, engine_path, &p->ps3.eboot);
             ok = ok && assets_build_ps3_art(g, atlas, &p->ps3.icon0, &p->ps3.pic1);
             if (ok) ps3_sfo(&p->ps3.sfo);
+            if (ok && !snd0_build(g, &p->ps3.snd0)) log_msg("  no title music found, the package has no XMB music");
             break;
         case TARGET_PS2:
             ok = ok && read_engine(TARGET_PS2, engine_path, &p->elf);
