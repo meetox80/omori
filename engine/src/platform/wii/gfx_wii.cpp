@@ -346,6 +346,32 @@ bool texture_read(const Texture* t, int x, int y, uint32_t* out) {
     return true;
 }
 
+void texture_read_rect(const Texture* t, int x, int y, int w, int h, uint32_t* out, size_t stride) {
+    if (!t) return;
+    int x0 = std::max(x, 0), y0 = std::max(y, 0), x1 = std::min(x + w, t->w), y1 = std::min(y + h, t->h);
+    if (x0 >= x1 || y0 >= y1) return;
+    if (t->cpu) {
+        for (int yy = y0; yy < y1; yy++)
+            std::memcpy(out + (size_t)(yy - y) * stride + (x0 - x), t->cpu + (size_t)yy * t->cpu_stride + x0, (size_t)(x1 - x0) * 4);
+        return;
+    }
+    if (t->surface) {
+        flush();
+        if (g_frame_open && t == &g_surface[(int)g_target].tex) save_efb(g_target);
+        GX_DrawDone();
+        DCInvalidateRange(t->data, t->bytes);
+    }
+    size_t tile_row = (size_t)(t->tw >> 2) * 64;
+    for (int yy = y0; yy < y1; yy++) {
+        const uint8_t* line = t->data + (size_t)(yy >> 2) * tile_row + (size_t)(yy & 3) * 8;
+        uint32_t* row = out + (size_t)(yy - y) * stride;
+        for (int xx = x0; xx < x1; xx++) {
+            const uint8_t* p = line + (size_t)(xx >> 2) * 64 + (size_t)(xx & 3) * 2;
+            row[xx - x] = rgba(p[1], p[32], p[33], p[0]);
+        }
+    }
+}
+
 void texture_destroy(Texture* t) {
     if (!t) return;
     g_garbage.push_back(t);

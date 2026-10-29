@@ -443,10 +443,7 @@ void read_rect(const Image* img, int x0, int y0, int w, int h, uint32_t* out, si
         if (ax >= bx || ay >= by) continue;
         gfx::Texture* t = chunk_texture(img, i);
         if (!t) continue;
-        for (int y = ay; y < by; y++) {
-            uint32_t* row = out + (size_t)(y - y0) * stride + (ax - x0);
-            for (int x = ax; x < bx; x++) gfx::texture_read(t, x - c.x, y - c.y, &row[x - ax]);
-        }
+        gfx::texture_read_rect(t, ax - c.x, ay - c.y, bx - ax, by - ay, out + (size_t)(ay - y0) * stride + (ax - x0), stride);
     }
 }
 

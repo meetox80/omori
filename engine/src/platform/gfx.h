@@ -86,6 +86,7 @@ Texture* texture_create(int w, int h, int stride, int rows, Format fmt, bool swi
 Texture* texture_wrap(int w, int h, int stride, uint32_t* pixels);
 void texture_touch(Texture* t);
 bool texture_read(const Texture* t, int x, int y, uint32_t* out);
+void texture_read_rect(const Texture* t, int x, int y, int w, int h, uint32_t* out, size_t stride);
 void texture_destroy(Texture* t);
 size_t texture_bytes(const Texture* t);
 int texture_width(const Texture* t);

@@ -716,6 +716,12 @@ bool texture_read(const Texture* t, int x, int y, uint32_t* out) {
     return true;
 }
 
+void texture_read_rect(const Texture* t, int x, int y, int w, int h, uint32_t* out, size_t stride) {
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) texture_read(t, x + i, y + j, out + (size_t)j * stride + i);
+    }
+}
+
 static void collect_garbage() {
     for (Texture* t : g_garbage) {
         ring_evict(t);
