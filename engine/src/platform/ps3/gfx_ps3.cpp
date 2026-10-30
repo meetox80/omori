@@ -24,6 +24,8 @@ constexpr int MAX_VTX = 4096;
 constexpr u32 HOST_BYTES = 16u << 20;
 constexpr u32 COMMAND_BYTES = 0x100000;
 constexpr size_t RING_BYTES = 8u << 20;
+constexpr u32 DISPLAY_ALIGN = 1u << 20;
+constexpr uint64_t FLIP_WAIT_US = 100000;
 constexpr u8 LABEL = 255;
 constexpr u32 GROUP_WORDS = 1024;
 constexpr u16 BLEND_MIN = 0x8007;
@@ -454,7 +456,7 @@ void init() {
     gcmSetFlipMode(GCM_FLIP_VSYNC);
     g_display_pitch = ((u32)g_display_w * 4 + 63) & ~63u;
     for (int i = 0; i < 2; i++) {
-        void* mem = rsxMemalign(64, (size_t)g_display_pitch * g_display_h);
+        void* mem = rsxMemalign(DISPLAY_ALIGN, (size_t)g_display_pitch * g_display_h);
         std::memset(mem, 0, (size_t)g_display_pitch * g_display_h);
         rsxAddressToOffset(mem, &g_display_offset[i]);
         gcmSetDisplayBuffer((u8)i, g_display_offset[i], g_display_pitch, (u32)g_display_w, (u32)g_display_h);
@@ -717,7 +719,18 @@ static void present_border(float x0, float sx, float sy, float scale) {
     }
 }
 
+static bool flip_done() {
+    if (g_first_flip) return true;
+    uint64_t start = plat::time_us();
+    while (gcmGetFlipStatus() != 0) {
+        if (plat::time_us() - start > FLIP_WAIT_US) return false;
+        usleep(200);
+    }
+    return true;
+}
+
 static void present_frame() {
+    if (!flip_done()) return;
     u32 color_off = g_display_offset[g_display_index];
     bind_surface(color_off, g_display_pitch, g_display_depth_offset, g_display_pitch, g_display_w, g_display_h, true);
     room();
@@ -741,13 +754,9 @@ static void present_frame() {
     }
     draw_now(PROG_PRESENT, &g_surface[(int)Surface::Screen].tex, nullptr, Blend::Copy, true, false,
              GCM_COLOR_MASK_R | GCM_COLOR_MASK_G | GCM_COLOR_MASK_B, q, 4, true, g_display_w, g_display_h);
-    if (!g_first_flip) {
-        while (gcmGetFlipStatus() != 0) usleep(200);
-    }
     gcmResetFlipStatus();
     gcmSetFlip(g_ctx, (u8)g_display_index);
     rsxFlushBuffer(g_ctx);
-    gcmSetWaitFlip(g_ctx);
     g_display_index ^= 1;
     g_first_flip = false;
 }
@@ -761,8 +770,8 @@ void present() {
 void shutdown() {
     if (!g_ctx) return;
     present();
+    flip_done();
     room();
-    gcmSetWaitFlip(g_ctx);
     rsxFinish(g_ctx, 1);
 }
 
