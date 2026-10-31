@@ -81,6 +81,7 @@ bool init(int argc, char** argv) {
     testing::setup(g_opt);
     fs::init_data(g_opt.data_root);
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+    sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG);
     gfx::init();
     return true;
 }
