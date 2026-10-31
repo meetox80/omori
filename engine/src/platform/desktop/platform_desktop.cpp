@@ -102,6 +102,15 @@ void shutdown() {
 bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
+static uint32_t stick(int x, int y) {
+    if (!stick_enabled()) return 0;
+    if (x * x + y * y < 16384 * 16384) return 0;
+    uint32_t b = 0;
+    if (std::abs(x) * 5 > std::abs(y) * 2) b |= x < 0 ? BTN_LEFT : BTN_RIGHT;
+    if (std::abs(y) * 5 > std::abs(x) * 2) b |= y < 0 ? BTN_UP : BTN_DOWN;
+    return b;
+}
+
 void poll() {
     uint32_t b = 0;
     if (!g_opt.headless) {
@@ -129,6 +138,7 @@ void poll() {
             if (pb(SDL_CONTROLLER_BUTTON_DPAD_DOWN)) b |= BTN_DOWN;
             if (pb(SDL_CONTROLLER_BUTTON_DPAD_LEFT)) b |= BTN_LEFT;
             if (pb(SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) b |= BTN_RIGHT;
+            if (!(b & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT))) b |= stick(SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_LEFTX), SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_LEFTY));
             if (pb(SDL_CONTROLLER_BUTTON_A)) b |= BTN_OK;
             if (pb(SDL_CONTROLLER_BUTTON_B)) b |= BTN_CANCEL;
             if (pb(SDL_CONTROLLER_BUTTON_Y)) b |= BTN_MENU;

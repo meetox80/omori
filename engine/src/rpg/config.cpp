@@ -48,6 +48,7 @@ static const Field FIELDS[] = {{"alwaysDash", nullptr, &Config::always_dash},
                                {"screenEffectsIntensity", &Config::screen_effects_intensity, nullptr},
                                {"TKMFilterEnabledAll", nullptr, &Config::filters_enabled},
                                {"circleConfirm", nullptr, &Config::circle_confirm},
+                               {"leftStick", nullptr, &Config::left_stick},
                                {"border", nullptr, &Config::border},
                                {nullptr, nullptr, nullptr}};
 
@@ -78,6 +79,7 @@ void config_load() {
     }
     config_apply_volumes();
     border::set_enabled(g_config.border);
+    plat::set_stick_enabled(g_config.left_stick);
 }
 
 void config_save() {

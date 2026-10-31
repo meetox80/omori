@@ -97,6 +97,7 @@ bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
 static uint32_t stick(float x, float y) {
+    if (!stick_enabled()) return 0;
     if (x * x + y * y < 0.25f) return 0;
     uint32_t b = 0;
     if (std::fabs(x) * 5 > std::fabs(y) * 2) b |= x < 0 ? BTN_LEFT : BTN_RIGHT;
@@ -159,6 +160,7 @@ void poll() {
         if (h & WPAD_BUTTON_B) b |= BTN_DASH;
         if (h & WPAD_BUTTON_PLUS) b |= BTN_START;
         if (h & WPAD_BUTTON_MINUS) b |= BTN_SELECT;
+        if (w->exp.type == WPAD_EXP_NUNCHUK && !(b & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT))) b |= classic_stick(w->exp.nunchuk.js);
     }
     b |= testing::buttons(g_frame);
     g_buttons = b;

@@ -141,10 +141,16 @@ void poll() {
     hidScanInput();
     u32 k = hidKeysHeld();
     uint32_t b = 0;
-    if (k & KEY_UP) b |= BTN_UP;
-    if (k & KEY_DOWN) b |= BTN_DOWN;
-    if (k & KEY_LEFT) b |= BTN_LEFT;
-    if (k & KEY_RIGHT) b |= BTN_RIGHT;
+    if (k & KEY_DUP) b |= BTN_UP;
+    if (k & KEY_DDOWN) b |= BTN_DOWN;
+    if (k & KEY_DLEFT) b |= BTN_LEFT;
+    if (k & KEY_DRIGHT) b |= BTN_RIGHT;
+    if (stick_enabled() && !(b & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT))) {
+        if (k & KEY_CPAD_UP) b |= BTN_UP;
+        if (k & KEY_CPAD_DOWN) b |= BTN_DOWN;
+        if (k & KEY_CPAD_LEFT) b |= BTN_LEFT;
+        if (k & KEY_CPAD_RIGHT) b |= BTN_RIGHT;
+    }
     if (k & KEY_A) b |= BTN_OK;
     if (k & KEY_B) b |= BTN_CANCEL;
     if (k & KEY_X) b |= BTN_MENU;

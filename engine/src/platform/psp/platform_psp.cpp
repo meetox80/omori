@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <string>
@@ -101,7 +102,7 @@ bool init(int argc, char** argv) {
     testing::setup(g_opt);
     fs::init_data(g_opt.data_root);
     sceCtrlSetSamplingCycle(0);
-    sceCtrlSetSamplingMode(PSP_CTRL_MODE_DIGITAL);
+    sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
     gfx::init();
     return true;
 }
@@ -116,6 +117,16 @@ void shutdown() {
 bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
+static uint32_t stick(int x, int y) {
+    if (!stick_enabled()) return 0;
+    int dx = x - 128, dy = y - 128;
+    if (dx * dx + dy * dy < 64 * 64) return 0;
+    uint32_t b = 0;
+    if (std::abs(dx) * 5 > std::abs(dy) * 2) b |= dx < 0 ? BTN_LEFT : BTN_RIGHT;
+    if (std::abs(dy) * 5 > std::abs(dx) * 2) b |= dy < 0 ? BTN_UP : BTN_DOWN;
+    return b;
+}
+
 void poll() {
     SceCtrlData pad;
     sceCtrlPeekBufferPositive(&pad, 1);
@@ -124,6 +135,7 @@ void poll() {
     if (pad.Buttons & PSP_CTRL_DOWN) b |= BTN_DOWN;
     if (pad.Buttons & PSP_CTRL_LEFT) b |= BTN_LEFT;
     if (pad.Buttons & PSP_CTRL_RIGHT) b |= BTN_RIGHT;
+    if (!(b & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT))) b |= stick(pad.Lx, pad.Ly);
     if (pad.Buttons & PSP_CTRL_CROSS) b |= BTN_OK;
     if (pad.Buttons & PSP_CTRL_CIRCLE) b |= BTN_CANCEL;
     if (pad.Buttons & PSP_CTRL_TRIANGLE) b |= BTN_MENU;

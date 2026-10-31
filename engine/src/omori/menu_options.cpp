@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "../core/border.h"
+#include "../platform/platform.h"
 #include "../rpg/config.h"
 #include "../rpg/data.h"
 #include "../rpg/input.h"
@@ -71,6 +72,8 @@ void restore_default_config() {
     cfg.always_dash = false;
     cfg.text_skip = false;
     cfg.circle_confirm = rpg::circle_confirm_default();
+    cfg.left_stick = false;
+    plat::set_stick_enabled(false);
     cfg.border = true;
     border::set_enabled(true);
     cfg.bgm_volume = 70;
@@ -173,6 +176,17 @@ void WindowOmoMenuOptionsGeneral::make_options_list() {
         option.icons = true;
         options_list.push_back(std::move(option));
     }
+    {
+        const Value& toggle = text["textSkip"];
+        Option option;
+        option.name = "leftStick";
+        option.header = profile::STICK_HEADER;
+        for (size_t i = 0; i < toggle["options"].size(); i++) option.options.push_back(data::js_string(toggle["options"][i]));
+        option.help_text = profile::STICK_HELP;
+        option.spacing = toggle["spacing"].num();
+        option.index = rpg::config().left_stick ? 0 : 1;
+        options_list.push_back(std::move(option));
+    }
     if (border::available()) {
         const Value& toggle = text["textSkip"];
         Option option;
@@ -265,6 +279,10 @@ void WindowOmoMenuOptionsGeneral::process_option_command() {
     else if (data.name == "battleLogSpeed") cfg.battle_log_speed = data.index;
     else if (data.name == "alwaysDash") cfg.always_dash = data.index == 0;
     else if (data.name == "circleConfirm") cfg.circle_confirm = data.index == 1;
+    else if (data.name == "leftStick") {
+        cfg.left_stick = data.index == 0;
+        plat::set_stick_enabled(cfg.left_stick);
+    }
     else if (data.name == "border") {
         cfg.border = data.index == 0;
         border::set_enabled(cfg.border);

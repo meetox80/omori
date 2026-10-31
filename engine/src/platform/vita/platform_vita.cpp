@@ -96,6 +96,7 @@ bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
 static uint32_t stick(uint8_t x, uint8_t y) {
+    if (!stick_enabled()) return 0;
     int dx = (int)x - 128, dy = (int)y - 128;
     if (dx * dx + dy * dy < 64 * 64) return 0;
     uint32_t b = 0;

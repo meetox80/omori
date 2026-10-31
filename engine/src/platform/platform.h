@@ -66,6 +66,8 @@ void log(const char* fmt, ...);
 size_t free_memory();
 bool consume_resume();
 bool circle_confirms();
+void set_stick_enabled(bool on);
+bool stick_enabled();
 bool debug_warp(int& map, int& x, int& y, int& d);
 bool debug_battle(int& troop);
 bool debug_eval(std::string& src);

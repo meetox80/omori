@@ -353,6 +353,7 @@ bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
 static uint32_t stick(int x, int y) {
+    if (!stick_enabled()) return 0;
     int dx = x - 128, dy = y - 128;
     if (dx * dx + dy * dy < 64 * 64) return 0;
     uint32_t b = 0;

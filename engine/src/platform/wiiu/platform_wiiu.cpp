@@ -172,6 +172,7 @@ bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
 static uint32_t stick(float x, float y) {
+    if (!stick_enabled()) return 0;
     if (x * x + y * y < 0.25f) return 0;
     uint32_t b = 0;
     if (std::fabs(x) * 5 > std::fabs(y) * 2) b |= x < 0 ? BTN_LEFT : BTN_RIGHT;

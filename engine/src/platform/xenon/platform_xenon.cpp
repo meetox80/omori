@@ -186,6 +186,7 @@ bool running() { return g_running; }
 void request_exit() { g_running = false; }
 
 static uint32_t stick(int x, int y) {
+    if (!stick_enabled()) return 0;
     if (x * x + y * y < STICK_DEAD * STICK_DEAD) return 0;
     uint32_t b = 0;
     if (std::abs(x) * 5 > std::abs(y) * 2) b |= x < 0 ? BTN_LEFT : BTN_RIGHT;
