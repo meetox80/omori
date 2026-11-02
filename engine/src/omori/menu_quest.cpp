@@ -73,8 +73,8 @@ public:
         if (idx < 0 || idx >= (int)quest_list_.size()) return out;
         const js::Val& quest = quest_list_[(size_t)idx];
         std::string id = jget(quest, "id").to_str();
-        int message_index = jget(quest, "messageIndex").to_int();
-        const Value& texts = data::quests()["quests"][id.c_str()]["text"][message_index];
+        std::string message_index = jget(quest, "messageIndex").to_str();
+        const Value& texts = data::quests()["quests"][id.c_str()]["text"][message_index.c_str()];
         for (size_t i = 0; i < texts.size(); i++) out.push_back(data::js_string(texts[i]));
         return out;
     }
