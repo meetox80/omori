@@ -920,6 +920,7 @@ void bind_managers() {
                return deep_copy(js::arg(a, 0), seen);
            }));
     vm.set_global("JsonEx", json_ex);
+    vm.set_global("direction", Val());
     static const char* scene_names[] = {"Scene_Boot",      "Scene_Title",          "Scene_OmoriTitleScreen", "Scene_Map",         "Scene_Battle",
                                         "Scene_Gameover",  "Scene_Menu",           "Scene_OmoMenuBase",      "Scene_OmoriFile",   "Scene_OmoBlackLetterMenu",
                                         "Scene_OmoriQuest", "Scene_OmoriPhotoAlbum", "Scene_OmoriItemShop",    "Scene_SlotMachine", "Scene_Gacha",
