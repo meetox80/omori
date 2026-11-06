@@ -220,6 +220,14 @@ static void test_yaml(void) {
     CHECK(!strcmp(node_strv(node_get(n, "j")), "plain text continued"));
     node_free(n);
     CHECK(yaml_parse("a: 1\na: 2\n", 10, err, sizeof(err)) == NULL);
+    const char* quests = "\xEF\xBB\xBFquests:\r\n# STUFFED EGGPLANT\r\n  Aubergine:\r\n    world: 1\r\n  Basil:\r\n    world: 2\r\nnext: 3\r\n";
+    Node* q = yaml_parse(quests, strlen(quests), err, sizeof(err));
+    CHECK(q != NULL);
+    if (!q) return;
+    CHECK(node_numv(node_get(node_get(node_get(q, "quests"), "Aubergine"), "world"), 0) == 1);
+    CHECK(node_numv(node_get(node_get(node_get(q, "quests"), "Basil"), "world"), 0) == 2);
+    CHECK(node_numv(node_get(q, "next"), 0) == 3);
+    node_free(q);
 }
 
 static void test_json_vbin(void) {

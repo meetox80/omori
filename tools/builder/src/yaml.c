@@ -778,6 +778,10 @@ static Node* parse_at(Y* y, int ind, int parent_indent) {
 }
 
 Node* yaml_parse(const char* text, size_t len, char* err, size_t errlen) {
+    if (len >= 3 && (uint8_t)text[0] == 0xEF && (uint8_t)text[1] == 0xBB && (uint8_t)text[2] == 0xBF) {
+        text += 3;
+        len -= 3;
+    }
     char* copy = NULL;
     if (len && text[len - 1] != '\n' && text[len - 1] != '\r') {
         copy = xmalloc(len + 1);
@@ -787,7 +791,6 @@ Node* yaml_parse(const char* text, size_t len, char* err, size_t errlen) {
         len++;
     }
     Y y = {text, len, 0, 0, err, errlen};
-    if (len >= 3 && (uint8_t)text[0] == 0xEF && (uint8_t)text[1] == 0xBB && (uint8_t)text[2] == 0xBF) y.i = 3;
     int ind;
     if (!next_content(&y, &ind)) return node_null();
     Node* r = parse_at(&y, ind, -1);
