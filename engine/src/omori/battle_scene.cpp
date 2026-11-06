@@ -370,7 +370,6 @@ void SceneBattle::update_retry_fade() {
     face_windows_container->set_opacity(face_windows_container->opacity() + per);
     if (auto* w = dynamic_cast<g2d::Window*>(scroll_text_layer_.get())) w->set_window_opacity(w->window_opacity() + per);
     if (auto c = party_command_window->custom_cursor_container()) c->set_opacity(c->opacity() + per);
-    st.battle_retried = false;
 }
 
 void SceneBattle::update_battle_process() {
