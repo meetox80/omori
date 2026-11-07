@@ -84,6 +84,7 @@ static SurfaceInfo g_surface[6];
 static Surface g_target = Surface::Screen;
 static int g_display_w = 0, g_display_h = 0;
 static float g_display_aspect = 16.0f / 9.0f;
+static float g_display_safe = 1.0f;
 static u32 g_display_pitch = 0;
 static u32 g_display_offset[2] = {0, 0};
 static u32 g_display_depth_offset = 0;
@@ -442,6 +443,7 @@ static void choose_display() {
     g_display_aspect = state.displayMode.aspect == VIDEO_ASPECT_4_3 ? 4.0f / 3.0f : 16.0f / 9.0f;
     g_display_w = res.width;
     g_display_h = res.height;
+    g_display_safe = id == VIDEO_RESOLUTION_480 || id == VIDEO_RESOLUTION_576 ? 0.9f : 1.0f;
 }
 
 void init() {
@@ -691,11 +693,11 @@ bool set_border(const BorderArt* art, const BorderRect* bars, int nbars, const B
 
 void set_border_scroll(float x) { g_border_scroll = x; }
 
-static void present_border(float x0, float sx, float sy, float scale) {
+static void present_border(float x0, float top, float sx, float sy, float scale) {
     const u32 mask = GCM_COLOR_MASK_R | GCM_COLOR_MASK_G | GCM_COLOR_MASK_B;
     BorderSpan spans[BORDER_SPANS];
     for (const BorderRect& b : g_border_bars) {
-        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0), y0 = b.y0 * sy, y1 = b.y1 * sy;
+        float v0 = (float)(b.y0 - g_border_tiles.y0), v1 = v0 + (float)(b.y1 - b.y0), y0 = top + b.y0 * sy, y1 = top + b.y1 * sy;
         int n = border_spans(g_border_tiles, b, g_border_scroll, spans);
         for (int i = 0; i < n; i++) {
             const BorderSpan& p = spans[i];
@@ -713,7 +715,7 @@ static void present_border(float x0, float sx, float sy, float scale) {
         }
     }
     for (const BorderRect& f : g_border_frame) {
-        float fx0 = x0 + f.x0 * sx, fx1 = x0 + f.x1 * sx, fy0 = f.y0 * sy, fy1 = f.y1 * sy;
+        float fx0 = x0 + f.x0 * sx, fx1 = x0 + f.x1 * sx, fy0 = top + f.y0 * sy, fy1 = top + f.y1 * sy;
         Vtx q[4] = {vtx(fx0, fy0, 0, 0, g_border_line), vtx(fx1, fy0, 0, 0, g_border_line), vtx(fx1, fy1, 0, 0, g_border_line), vtx(fx0, fy1, 0, 0, g_border_line)};
         draw_now(PROG_COLOR, nullptr, nullptr, Blend::Copy, false, false, mask, q, 4, true, g_display_w, g_display_h);
     }
@@ -737,16 +739,17 @@ static void present_frame() {
     rsxSetStencilTestEnable(g_ctx, GCM_FALSE);
     rsxSetAlphaTestEnable(g_ctx, GCM_FALSE);
     rsxSetColorMask(g_ctx, GCM_COLOR_MASK_R | GCM_COLOR_MASK_G | GCM_COLOR_MASK_B | GCM_COLOR_MASK_A);
-    if (g_border.empty()) {
+    if (g_border.empty() || g_display_safe < 1.0f) {
         rsxSetClearColor(g_ctx, 0xFF000000u);
         rsxClearSurface(g_ctx, GCM_CLEAR_R | GCM_CLEAR_G | GCM_CLEAR_B | GCM_CLEAR_A);
     }
-    float h = (float)g_display_h;
-    float w = present_width();
+    float h = g_display_h * g_display_safe;
+    float w = present_width() * g_display_safe;
     float x0 = (g_display_w - w) * 0.5f;
+    float y0 = (g_display_h - h) * 0.5f;
     float scale = h / SCREEN_H;
-    if (!g_border.empty()) present_border(x0, w / SCREEN_W, scale, scale < 1.0f ? 1.0f : scale);
-    Vtx q[4] = {vtx(x0, 0, 0, 0, 0xFFFFFFFFu), vtx(x0 + w, 0, 1, 0, 0xFFFFFFFFu), vtx(x0 + w, h, 1, 1, 0xFFFFFFFFu), vtx(x0, h, 0, 1, 0xFFFFFFFFu)};
+    if (!g_border.empty()) present_border(x0, y0, w / SCREEN_W, scale, scale < 1.0f ? 1.0f : scale);
+    Vtx q[4] = {vtx(x0, y0, 0, 0, 0xFFFFFFFFu), vtx(x0 + w, y0, 1, 0, 0xFFFFFFFFu), vtx(x0 + w, y0 + h, 1, 1, 0xFFFFFFFFu), vtx(x0, y0 + h, 0, 1, 0xFFFFFFFFu)};
     for (Vtx& v : q) {
         v.e[0] = (float)SCREEN_W;
         v.e[1] = (float)SCREEN_H;
