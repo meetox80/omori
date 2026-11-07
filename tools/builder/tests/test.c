@@ -1,4 +1,5 @@
 #include <math.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -228,6 +229,35 @@ static void test_yaml(void) {
     CHECK(node_numv(node_get(node_get(node_get(q, "quests"), "Basil"), "world"), 0) == 2);
     CHECK(node_numv(node_get(q, "next"), 0) == 3);
     node_free(q);
+}
+
+static jmp_buf g_oom_jump;
+static int g_relieved;
+static size_t g_failed_size;
+
+static int test_relieve(size_t n) {
+    (void)n;
+    g_relieved++;
+    return 1;
+}
+
+static void test_alloc_failed(size_t n) {
+    g_failed_size = n;
+    longjmp(g_oom_jump, 1);
+}
+
+static void test_alloc_handlers(void) {
+    size_t huge = (size_t)-1 / 2;
+    xalloc_set_handlers(test_relieve, test_alloc_failed);
+    if (!setjmp(g_oom_jump)) {
+        xmalloc(huge);
+        CHECK(0);
+    }
+    CHECK(g_relieved == 1 && g_failed_size == huge);
+    void* p = xmalloc(16);
+    CHECK(p != NULL);
+    free(p);
+    xalloc_set_handlers(NULL, NULL);
 }
 
 static void test_json_vbin(void) {
@@ -994,6 +1024,7 @@ int main(void) {
     test_face_chunks();
     test_t8_alt();
     test_3dsx_pack();
+    test_alloc_handlers();
     test_json_vbin();
     test_scripts();
     test_rx();

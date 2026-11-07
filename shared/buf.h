@@ -14,6 +14,7 @@ typedef struct {
     size_t cap;
 } Buf;
 
+void xalloc_set_handlers(int (*relieve)(size_t n), void (*fail)(size_t n));
 void* xmalloc(size_t n);
 void* xcalloc(size_t n, size_t size);
 void* xrealloc(void* p, size_t n);

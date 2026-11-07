@@ -4,42 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <stdio.h>
-
-static void* rx_oom(void) {
-    fputs("out of memory\n", stderr);
-    abort();
-    return NULL;
-}
-
-static void* xmalloc(size_t n) {
-    void* p = malloc(n ? n : 1);
-    return p ? p : rx_oom();
-}
-
-static void* xcalloc(size_t n, size_t m) {
-    void* p = calloc(n ? n : 1, m ? m : 1);
-    return p ? p : rx_oom();
-}
-
-static void* xrealloc(void* p, size_t n) {
-    void* q = realloc(p, n ? n : 1);
-    return q ? q : rx_oom();
-}
-
-static char* xstrndup(const char* s, size_t n) {
-    char* d = (char*)xmalloc(n + 1);
-    memcpy(d, s, n);
-    d[n] = 0;
-    return d;
-}
-
-static char* xstrdup(const char* s) {
-    size_t n = strlen(s) + 1;
-    char* d = (char*)xmalloc(n);
-    memcpy(d, s, n);
-    return d;
-}
+#include "buf.h"
 
 enum { R_CHAR, R_ANY, R_CLASS, R_GROUP, R_SEQ, R_ALT, R_BOL, R_EOL, R_WORDB, R_NWORDB, R_BACKREF, R_LOOK };
 

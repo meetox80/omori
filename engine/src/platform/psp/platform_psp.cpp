@@ -3,6 +3,7 @@
 #include "../platform.h"
 #include "../common/testing.h"
 #include "../../core/fs.h"
+#include "buf.h"
 
 #include <malloc.h>
 #include <pspaudio.h>
@@ -319,9 +320,24 @@ static void (*g_low_memory)() = nullptr;
 static SceUID g_main_thread = -1;
 static bool g_in_low_memory = false;
 
+static int relieve_shared_alloc(size_t size) {
+    if (!g_low_memory || g_in_low_memory || sceKernelGetThreadId() != g_main_thread) return 0;
+    g_in_low_memory = true;
+    g_low_memory();
+    g_in_low_memory = false;
+    plat::log("low memory: freed caches for %u bytes in shared code", (unsigned)size);
+    return 1;
+}
+
+static void shared_alloc_failed(size_t size) {
+    plat::log("out of memory: %u bytes requested in shared code, heap used %u of %u KB", (unsigned)size,
+              (unsigned)(plat::heap_used() / 1024), (unsigned)(plat::heap_limit() / 1024));
+}
+
 void plat::set_low_memory_handler(void (*fn)()) {
     g_low_memory = fn;
     g_main_thread = sceKernelGetThreadId();
+    xalloc_set_handlers(relieve_shared_alloc, shared_alloc_failed);
 }
 
 constexpr size_t LARGE_BLOCK = 64 * 1024;

@@ -5,22 +5,40 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int (*g_relieve)(size_t n);
+static void (*g_fail)(size_t n);
+
+void xalloc_set_handlers(int (*relieve)(size_t n), void (*fail)(size_t n)) {
+    g_relieve = relieve;
+    g_fail = fail;
+}
+
+static void* alloc_failed(size_t n) {
+    if (g_fail) g_fail(n);
+    abort();
+    return NULL;
+}
+
 void* xmalloc(size_t n) {
-    void* p = malloc(n ? n : 1);
-    if (!p) abort();
-    return p;
+    if (!n) n = 1;
+    void* p = malloc(n);
+    if (!p && g_relieve && g_relieve(n)) p = malloc(n);
+    return p ? p : alloc_failed(n);
 }
 
 void* xcalloc(size_t n, size_t size) {
-    void* p = calloc(n ? n : 1, size ? size : 1);
-    if (!p) abort();
-    return p;
+    if (!n) n = 1;
+    if (!size) size = 1;
+    void* p = calloc(n, size);
+    if (!p && g_relieve && g_relieve(n * size)) p = calloc(n, size);
+    return p ? p : alloc_failed(n * size);
 }
 
 void* xrealloc(void* p, size_t n) {
-    p = realloc(p, n ? n : 1);
-    if (!p) abort();
-    return p;
+    if (!n) n = 1;
+    void* q = realloc(p, n);
+    if (!q && g_relieve && g_relieve(n)) q = realloc(p, n);
+    return q ? q : alloc_failed(n);
 }
 
 char* xstrdup(const char* s) { return xstrndup(s, strlen(s)); }
