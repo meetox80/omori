@@ -46,6 +46,8 @@ constexpr int MAX_VTX = 4096;
 constexpr int LIST_WORDS = 65536;
 static unsigned int __attribute__((aligned(64))) g_lists[2][LIST_WORDS];
 static int g_list_index = 0;
+
+static unsigned int* uncached_list(int i) { return (unsigned int*)((uintptr_t)g_lists[i] | 0x40000000u); }
 static bool g_gpu_busy = false;
 static bool g_frame_pending = false;
 static bool g_list_open = false;
@@ -386,8 +388,9 @@ static void setup_surfaces() {
 }
 
 void init() {
+    sceKernelDcacheWritebackInvalidateRange(g_lists, sizeof(g_lists));
     sceGuInit();
-    sceGuStart(GU_DIRECT, g_lists[0]);
+    sceGuStart(GU_DIRECT, uncached_list(0));
     sceGuDrawBuffer(GU_PSM_8888, (void*)0, BUF_W);
     sceGuDispBuffer(SCREEN_W, SCREEN_H, (void*)(BUF_W * SCREEN_H * 4), BUF_W);
     sceGuOffset(2048 - (SCREEN_W / 2), 2048 - (SCREEN_H / 2));
@@ -538,7 +541,7 @@ static void prepare(Texture* tex, Blend blend, bool smooth, int prim, int verts,
 
 void begin_frame(uint32_t clear_color) {
     present();
-    sceGuStart(GU_DIRECT, g_lists[g_list_index]);
+    sceGuStart(GU_DIRECT, uncached_list(g_list_index));
     g_list_index ^= 1;
     g_list_open = true;
     sceGuTexFlush();
