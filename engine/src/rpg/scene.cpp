@@ -437,6 +437,7 @@ void run(SceneFactory first) {
     goto_scene(std::move(first));
     while (plat::running() && !g_stopped) {
         plat::poll();
+        if (!plat::running()) break;
         if (plat::consume_resume()) {
             fs::drop_idle_handles();
             audio::on_resume();

@@ -93,6 +93,8 @@ static int g_count = 0;
 
 static bool g_in_frame = false;
 static bool g_submitted = false;
+static volatile bool g_gpu_away = false;
+static aptHookCookie g_apt_cookie;
 static Texture* g_tex = nullptr;
 static Blend g_blend = Blend::Normal;
 static bool g_smooth = false;
@@ -587,11 +589,17 @@ static void init_morton() {
     }
 }
 
+static void apt_hook(APT_HookType hook, void*) {
+    if (hook == APTHOOK_ONSUSPEND) g_gpu_away = true;
+    else if (hook == APTHOOK_ONRESTORE) g_gpu_away = false;
+}
+
 void init() {
     init_morton();
     gfxInitDefault();
     gfxSet3D(false);
     C3D_Init(CMDBUF_BYTES);
+    aptHook(&g_apt_cookie, apt_hook, nullptr);
     g_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, C3D_DEPTHTYPE(GPU_RB_DEPTH24_STENCIL8));
     C3D_RenderTargetSetOutput(g_top, GFX_TOP, GFX_LEFT, DISPLAY_FLAGS);
     for (int i = 0; i < SURFACE_COUNT; i++) {
@@ -655,8 +663,11 @@ void init() {
 }
 
 void shutdown() {
-    if (g_in_frame) end_frame();
-    wait_idle();
+    aptUnhook(&g_apt_cookie);
+    if (!g_gpu_away) {
+        if (g_in_frame) end_frame();
+        wait_idle();
+    }
     collect_garbage();
     for (int i = 0; i < SURFACE_COUNT; i++) {
         if (!g_targets[i]) continue;
