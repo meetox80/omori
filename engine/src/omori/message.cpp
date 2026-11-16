@@ -20,6 +20,7 @@
 #include "../rpg/party.h"
 #include "../rpg/state.h"
 #include "../rpg/system.h"
+#include "bottom_dialogue.h"
 #include "ui_util.h"
 #include "window_selectable.h"
 
@@ -94,6 +95,7 @@ class WindowMessageFaceBox;
 
 class WindowMessage : public WindowBase {
 public:
+    ~WindowMessage() override { dialogue::forget(this); }
     void initialize(rpg::Scene& scene);
     void init_members();
     void create_sub_windows(rpg::Scene& scene);
@@ -129,6 +131,10 @@ public:
     }
     void process_new_line(TextState& ts) override;
     void process_new_page(TextState& ts) override;
+    void process_character(TextState& ts) override;
+    void process_draw_icon(int icon_index, TextState& ts) override;
+    void process_draw_input_icon(const std::string& input, TextState& ts) override;
+    bool mirroring(const TextState& ts) const { return mirror_ && &ts == &text_state && !checking_width_ && !check_word_wrap_mode_; }
     bool is_end_of_text(const TextState& ts) const { return ts.index >= ts.text.size(); }
     bool needs_new_page(const TextState& ts);
     void process_escape_character(const std::string& code, TextState& ts) override;
@@ -191,6 +197,7 @@ public:
     bool pause_skip_ = false;
     bool needs_message_reset_ = false;
     bool checking_width_ = false;
+    bool mirror_ = false;
     int sound_count_ = 0;
     bool has_lock_position_ = false;
     double lock_position_to_event_ = 0;
@@ -296,6 +303,9 @@ private:
     bool face_ready_ = false;
 };
 
+static std::string g_name_shown;
+static int g_name_count = 0;
+
 class WindowNameBox : public WindowBase {
 public:
     void initialize(WindowMessage* parent) {
@@ -336,6 +346,8 @@ public:
     std::string yep_refresh(const std::string& text, int position) {
         show();
         last_name_text = text;
+        g_name_shown = text;
+        g_name_count++;
         text_ = param("YEP_MessageCore", "Name Box Added Text", "") + text;
         position_ = position;
         set_width(window_width());
@@ -413,6 +425,8 @@ void WindowNameBox::update() {
 std::string WindowNameBox::refresh(const std::string& text, int position) {
     show();
     last_name_text = text;
+    g_name_shown = text;
+    g_name_count++;
     text_ = param("YEP_MessageCore", "Name Box Added Text", "") + text;
     position_ = position;
     set_width(window_width());
@@ -453,6 +467,15 @@ public:
         select_default();
         open();
         activate();
+        if (dialogue::enabled()) {
+            std::vector<std::string> names;
+            std::vector<bool> enabled;
+            for (int i = 0; i < max_items(); i++) {
+                names.push_back(convert_escape_characters(command_name(i)));
+                enabled.push_back(is_command_enabled(i));
+            }
+            dialogue::choices(message_window_, names, enabled);
+        }
     }
     void select_default() { select(rpg::game_message().choice_default_type); }
     void update_placement() {
@@ -991,8 +1014,11 @@ void WindowMessage::start_message() {
     name_window->deactivate();
     text_state = TextState();
     text_state.index = 0;
+    int names = g_name_count;
     text_state.text = convert_escape_characters(rpg::game_message().all_text());
     has_text_state = true;
+    mirror_ = dialogue::enabled();
+    if (mirror_) dialogue::begin(this, g_name_count != names ? g_name_shown : std::string());
     new_page(text_state);
     prefetch_text_fonts(text_state.text);
     update_placement();
@@ -1148,6 +1174,7 @@ void WindowMessage::update_show_fast() {
 }
 
 void WindowMessage::new_page(TextState& ts) {
+    if (mirroring(ts)) dialogue::page();
     sound_count_ = 0;
     adjust_window_settings();
     c().clear();
@@ -1187,6 +1214,40 @@ void WindowMessage::process_new_page(TextState& ts) {
 }
 
 bool WindowMessage::needs_new_page(const TextState& ts) { return !is_end_of_text(ts) && ts.y + ts.height > c().height(); }
+
+void WindowMessage::process_character(TextState& ts) {
+    if (!mirroring(ts) || ts.index >= ts.text.size()) {
+        WindowBase::process_character(ts);
+        return;
+    }
+    char ch = ts.text[ts.index];
+    if (ch == '\n') {
+        WindowBase::process_character(ts);
+        dialogue::line_break();
+        return;
+    }
+    if (ch == '\f' || ch == ESC) {
+        WindowBase::process_character(ts);
+        return;
+    }
+    size_t at = ts.index;
+    double y = ts.y;
+    std::string color = c().text_color;
+    double ratio = (double)c().font_size / std::max(1, standard_font_size());
+    WindowBase::process_character(ts);
+    if (ts.y != y) dialogue::soft_space();
+    else dialogue::glyph(ts.text, at, ts.index, color, ratio);
+}
+
+void WindowMessage::process_draw_icon(int icon_index, TextState& ts) {
+    WindowBase::process_draw_icon(icon_index, ts);
+    if (mirroring(ts)) dialogue::icon(icon_index);
+}
+
+void WindowMessage::process_draw_input_icon(const std::string& input, TextState& ts) {
+    WindowBase::process_draw_input_icon(input, ts);
+    if (mirroring(ts)) dialogue::key_icon(input_key_code(input));
+}
 
 void WindowMessage::process_escape_character(const std::string& code, TextState& ts) {
     if (hooks.process_escape_character) hooks.process_escape_character(code, ts);
@@ -1713,6 +1774,7 @@ void forget_message_window(WindowMessage* w) {
 bool message_window_is_closing(WindowMessage* w) { return w && w->is_closing(); }
 bool message_window_is_open(WindowMessage* w) { return w && w->is_open(); }
 bool message_window_is_any_sub_window_active(WindowMessage* w) { return w && w->is_any_sub_window_active(); }
+int message_window_choice_index(WindowMessage* w) { return w && w->choice_window->active ? w->choice_window->index() : -1; }
 void message_window_terminate(WindowMessage* w) {
     if (w) w->terminate_message();
 }
@@ -1731,6 +1793,7 @@ void message_window_draw_text_page(WindowMessage* w, const std::string& text, do
     w->text_state.index = 0;
     w->text_state.text = w->convert_escape_characters(text);
     w->has_text_state = true;
+    w->mirror_ = false;
     w->new_page(w->text_state);
     w->text_state.x = x;
     w->text_state.y = y;

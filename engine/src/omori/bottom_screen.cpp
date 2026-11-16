@@ -17,6 +17,7 @@
 #include "../rpg/params.h"
 #include "../rpg/party.h"
 #include "../rpg/scene.h"
+#include "bottom_dialogue.h"
 #include "menu_common.h"
 #include "ui_util.h"
 
@@ -220,6 +221,7 @@ int g_page = 0;
 bool g_targeting = false;
 bool g_dirty = true;
 bool g_down = false;
+bool g_talk = false;
 Press g_press;
 std::vector<double> g_sig;
 
@@ -742,6 +744,21 @@ void update_bottom() {
             g_ui->fade = 0;
         }
     }
+    bool talk = dialogue::update();
+    if (talk != g_talk) {
+        g_talk = talk;
+        g_dirty = true;
+        g_targeting = false;
+        int tx = 0, ty = 0;
+        g_down = plat::touch(tx, ty);
+        g_press = Press();
+        g_sig.clear();
+        if (!talk && g_ui) g_ui->fade = 0;
+    }
+    if (g_talk) {
+        if (dialogue::changed()) g_dirty = true;
+        return;
+    }
     if (g_mode != Mode::Play) return;
     if (needs_rebuild()) build();
     handle_touch();
@@ -759,7 +776,7 @@ void render_bottom() {
     g_dirty = false;
     gfx::Surface keep = gfx::current_target();
     gfx::set_target(gfx::Surface::Bottom);
-    if (g_ui && g_mode == Mode::Play) {
+    if (g_talk || (g_ui && g_mode == Mode::Play)) {
         g2d::RenderState rs;
         rs.clip = true;
         rs.cx0 = (int)images::OFFSET_X;
@@ -767,7 +784,8 @@ void render_bottom() {
         rs.cx1 = (int)images::OFFSET_X + (int)std::lround(640 * images::SCALE);
         rs.cy1 = (int)images::OFFSET_Y + (int)std::lround(480 * images::SCALE);
         gfx::set_scissor(rs.cx0, rs.cy0, rs.cx1 - rs.cx0, rs.cy1 - rs.cy0);
-        g_ui->root->render(rs);
+        if (g_talk) dialogue::render(rs);
+        else g_ui->root->render(rs);
         gfx::reset_scissor();
     }
     gfx::set_target(keep);

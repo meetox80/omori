@@ -339,13 +339,18 @@ static std::string family_of(const std::string& face) {
     return "game";
 }
 
-FontFace* font_for(const std::string& face, int size, bool outline) {
-    static std::map<std::string, std::unique_ptr<FontFace>> cache;
-    static std::map<std::string, bool> missing;
+int font_atlas_size(int size) {
     int best = SIZES[0];
     for (int s : SIZES) {
         if (std::abs(s - size) < std::abs(best - size)) best = s;
     }
+    return best;
+}
+
+FontFace* font_for(const std::string& face, int size, bool outline) {
+    static std::map<std::string, std::unique_ptr<FontFace>> cache;
+    static std::map<std::string, bool> missing;
+    int best = font_atlas_size(size);
     std::string fam = family_of(face);
     char key[96];
     std::snprintf(key, sizeof(key), "fonts/%s_%d%s", fam.c_str(), best, outline ? "_o" : "");

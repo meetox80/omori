@@ -141,7 +141,7 @@ public:
     virtual void process_escape_character(const std::string& code, TextState& ts);
     void base_process_escape_character(const std::string& code, TextState& ts);
     virtual void process_draw_icon(int icon_index, TextState& ts);
-    void process_draw_input_icon(const std::string& input, TextState& ts);
+    virtual void process_draw_input_icon(const std::string& input, TextState& ts);
     virtual void make_font_bigger();
     virtual void make_font_smaller();
     virtual double calc_text_height(const TextState& ts, bool all);

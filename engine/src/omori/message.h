@@ -18,6 +18,7 @@ WindowMessage* current_message_window();
 bool message_window_is_closing(WindowMessage* w);
 bool message_window_is_open(WindowMessage* w);
 bool message_window_is_any_sub_window_active(WindowMessage* w);
+int message_window_choice_index(WindowMessage* w);
 void message_window_terminate(WindowMessage* w);
 g2d::Window* message_window_as_window(WindowMessage* w);
 std::shared_ptr<g2d::Sprite> message_face_box_container(WindowMessage* w);
