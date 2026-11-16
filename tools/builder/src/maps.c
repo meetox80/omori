@@ -765,13 +765,28 @@ static void compile_events(Node* m, int id) {
     }
 }
 
-int maps_build_one(Game* g, int id, Buf* bin, Buf* tex, char** err) {
+static void collect_text(const Node* v, Buf* text) {
+    if (!v) return;
+    if (v->type == N_STR) {
+        for (size_t i = 0; i < v->len; i++) {
+            if ((unsigned char)v->str[i] < 0x80) continue;
+            buf_put(text, v->str, v->len);
+            buf_put(text, "\n", 1);
+            break;
+        }
+    } else if (v->type == N_ARR || v->type == N_OBJ) {
+        for (size_t i = 0; i < v->count; i++) collect_text(v->items[i], text);
+    }
+}
+
+int maps_build_one(Game* g, int id, Buf* bin, Buf* tex, Buf* text, char** err) {
     *err = NULL;
     char* path = str_fmt("data/Map%03d.json", id);
     Node* m = game_json_opt(g, path);
     free(path);
     if (!m) return 0;
     node_remove(m, "data");
+    collect_text(m, text);
     compile_events(m, id);
     char* tpath = str_fmt("maps/map%d.json", id);
     Node* tm = game_json_opt(g, tpath);

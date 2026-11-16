@@ -73,7 +73,7 @@ const std::vector<std::vector<const char*>>& location_names_per_language() {
     return t;
 }
 
-std::string default_language() { return data::plugin_param("Text_Language_Processor", "Default Language", "en"); }
+std::string default_language() { return data::default_language(); }
 
 std::string convert_name_to_language(const std::vector<std::vector<const char*>>& table, const std::string& name) {
     static const char* langs[] = {"en", "jp", "kr", "sc"};

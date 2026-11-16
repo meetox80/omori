@@ -1,3 +1,4 @@
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
@@ -394,6 +395,72 @@ void collect_js_methods(const std::string& src, Node* out) {
     node_free(ast);
 }
 
+static size_t skip_quoted(const std::string& s, size_t i) {
+    char q = s[i++];
+    while (i < s.size() && s[i] != q) {
+        if (s[i] == '\\') i++;
+        i++;
+    }
+    return i < s.size() ? i + 1 : i;
+}
+
+std::string column_zero_statements(const std::string& src, const char* name) {
+    std::string out;
+    size_t nlen = std::strlen(name);
+    for (size_t at = 0; at < src.size();) {
+        size_t line = at;
+        size_t next = src.find('\n', at);
+        at = next == std::string::npos ? src.size() : next + 1;
+        if (src.compare(line, nlen, name) != 0 || line + nlen >= src.size() || (src[line + nlen] != '.' && src[line + nlen] != '[')) continue;
+        std::string stmt;
+        int depth = 0;
+        size_t i = line;
+        while (i < src.size()) {
+            char c = src[i];
+            if (c == '"' || c == '\'' || c == '`') {
+                size_t end = skip_quoted(src, i);
+                stmt.append(src, i, end - i);
+                i = end;
+                continue;
+            }
+            if (c == '/' && i + 1 < src.size() && src[i + 1] == '/') {
+                while (i < src.size() && src[i] != '\n') i++;
+                continue;
+            }
+            if (c == '/' && i + 1 < src.size() && src[i + 1] == '*') {
+                size_t end = src.find("*/", i + 2);
+                i = end == std::string::npos ? src.size() : end + 2;
+                stmt += ' ';
+                continue;
+            }
+            if (c == '{' || c == '[' || c == '(') depth++;
+            if (c == '}' || c == ']' || c == ')') depth--;
+            if (depth <= 0 && (c == ';' || c == '\n')) break;
+            stmt += c;
+            i++;
+        }
+        out += stmt + ";\n";
+        at = i < src.size() ? i + 1 : i;
+    }
+    return out;
+}
+
+bool two_byte_line_break(const std::string& src, bool& flag) {
+    const char* key = "_enable_2byte_linebreak";
+    for (size_t at = src.find(key); at != std::string::npos; at = src.find(key, at + 1)) {
+        size_t i = at + std::strlen(key);
+        while (i < src.size() && (src[i] == ' ' || src[i] == '\t')) i++;
+        if (i >= src.size() || src[i] != '=' || (i + 1 < src.size() && src[i + 1] == '=')) continue;
+        i++;
+        while (i < src.size() && (src[i] == ' ' || src[i] == '\t')) i++;
+        if (src.compare(i, 4, "true") == 0) flag = true;
+        else if (src.compare(i, 5, "false") == 0) flag = false;
+        else return false;
+        return true;
+    }
+    return false;
+}
+
 std::string read_plugin(Game* g, const char* name) {
     char* path = str_fmt("js/plugins/%s.js", name);
     Buf b = {0};
@@ -505,6 +572,71 @@ extern "C" int dbproc_run(Game* g, Node* root, Node* plugin_list, char** err) {
         collect_js_methods(read_plugin(g, name), methods);
     }
     node_set(root, "jsMethods", methods);
+    {
+        bool flag = false;
+        if (two_byte_line_break(read_plugin(g, "GTP_OmoriFixes"), flag)) node_set(root, "twoByteLineBreak", node_bool(flag));
+    }
+    {
+        std::string stmts = column_zero_statements(read_plugin(g, "Omori Name Input"), "VirtualKeyboard");
+        std::string kerr;
+        if (!stmts.empty() && !r.exec("var VirtualKeyboard = {};\n" + stmts, kerr)) log_msg("  note: keyboard layouts skipped (%s)", kerr.c_str());
+        std::string lang = "en";
+        for (size_t i = 0; plugin_list && plugin_list->type == N_ARR && i < plugin_list->count; i++) {
+            const Node* p = plugin_list->items[i];
+            const char* pname = node_strv(node_get(p, "name"));
+            const char* def = node_strv(node_get(node_get(p, "parameters"), "Default Language"));
+            if (pname && !strcmp(pname, "Text_Language_Processor") && def && *def) lang = def;
+        }
+        for (char& c : lang) c = (char)std::toupper((unsigned char)c);
+        js::Val vk = r.global("VirtualKeyboard");
+        if (vk.t == js::T::Obj) {
+            Node* layouts = node_obj();
+            Node* labels = node_obj();
+            std::vector<uint32_t> keys;
+            js::ordered_keys(vk.o, keys);
+            for (uint32_t k : keys) {
+                const js::Val* v = vk.o->find(k);
+                if (!v) continue;
+                const std::string& name = js::atom_name(k);
+                if (v->t == js::T::Str && !name.empty() && name[0] == '{') {
+                    node_set(labels, name.c_str(), node_strn(v->s->data.data(), v->s->data.size()));
+                    continue;
+                }
+                if (v->t != js::T::Obj || v->o->kind != js::Kind::Plain || (name != lang && name != "EN")) continue;
+                const js::Val* normal = v->o->find(js::atom("default"));
+                const js::Val* shift = v->o->find(js::atom("shift"));
+                if (!normal || !shift || normal->t != js::T::Obj || shift->t != js::T::Obj || normal->o->kind != js::Kind::Array ||
+                    shift->o->kind != js::Kind::Array)
+                    continue;
+                Node* layout = node_obj();
+                const js::Val* rows[2] = {normal, shift};
+                const char* rnames[2] = {"default", "shift"};
+                bool ok = true;
+                for (int i = 0; i < 2; i++) {
+                    Node* arr = node_arr();
+                    for (const js::Val& row : rows[i]->o->items) {
+                        if (row.t != js::T::Str) {
+                            ok = false;
+                            break;
+                        }
+                        node_push(arr, node_strn(row.s->data.data(), row.s->data.size()));
+                    }
+                    node_set(layout, rnames[i], arr);
+                }
+                if (ok) node_set(layouts, name.c_str(), layout);
+                else node_free(layout);
+            }
+            if (layouts->count) {
+                Node* kb = node_obj();
+                node_set(kb, "layouts", layouts);
+                node_set(kb, "labels", labels);
+                node_set(root, "keyboards", kb);
+            } else {
+                node_free(layouts);
+                node_free(labels);
+            }
+        }
+    }
     {
         std::string src = read_plugin(g, "GTP_OmoriFixes");
         size_t at = src.find("Print_Something_Txt");

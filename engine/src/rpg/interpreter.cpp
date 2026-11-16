@@ -114,7 +114,7 @@ void GameInterpreter::clear() {
 }
 
 static std::string localized_picture(const std::string& name) {
-    const std::string def = "_en";
+    const std::string def = "_" + data::default_language();
     const std::string cur = "_" + data::language();
     size_t p = name.find(def);
     if (p == std::string::npos) return name;

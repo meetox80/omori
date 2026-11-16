@@ -464,7 +464,7 @@ struct KeyboardLayouts {
     std::vector<std::string> shift;
 };
 
-const std::map<std::string, KeyboardLayouts>& keyboard_layouts() {
+const std::map<std::string, KeyboardLayouts>& builtin_layouts() {
     static const std::map<std::string, KeyboardLayouts> layouts = {
         {"EN",
          {{"` 1 2 3 4 5 6 7 8 9 0 - = {bksp}", "q w e r t y u i o p [ ] \\", "{lock} a s d f g h j k l ; '", "z x c v b n m , . / {confirm} {space}"},
@@ -484,10 +484,38 @@ const std::map<std::string, KeyboardLayouts>& keyboard_layouts() {
     return layouts;
 }
 
-const std::map<std::string, std::string>& special_keys() {
+const std::map<std::string, std::string>& builtin_keys() {
     static const std::map<std::string, std::string> keys = {{"{lock}", "⇪"},   {"{confirm}", "OK"},  {"{space}", " "},
                                                             {"{bksp}", "⌫"},   {"{rarrow}", "→"}, {"{larrow}", "←"},
                                                             {"{tradch}", "繁"},     {"{simpch}", "简"}};
+    return keys;
+}
+
+std::vector<std::string> value_rows(const Value& rows) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < rows.size(); i++) out.push_back(rows[i].string());
+    return out;
+}
+
+const std::map<std::string, KeyboardLayouts>& keyboard_layouts() {
+    static const std::map<std::string, KeyboardLayouts> layouts = [] {
+        const Value& game = data::root()["keyboards"]["layouts"];
+        if (!game.is_obj() || !game.size()) return builtin_layouts();
+        std::map<std::string, KeyboardLayouts> out;
+        for (const Member& m : game.members()) out[m.key] = KeyboardLayouts{value_rows(m.v["default"]), value_rows(m.v["shift"])};
+        return out;
+    }();
+    return layouts;
+}
+
+const std::map<std::string, std::string>& special_keys() {
+    static const std::map<std::string, std::string> keys = [] {
+        const Value& game = data::root()["keyboards"]["labels"];
+        if (!game.is_obj() || !game.size()) return builtin_keys();
+        std::map<std::string, std::string> out;
+        for (const Member& m : game.members()) out[m.key] = m.v.string();
+        return out;
+    }();
     return keys;
 }
 
@@ -690,6 +718,7 @@ void VirtualKeyboard::determine_layout_data() {
     current_layout_.clear();
     layout_cols_ = 0;
     auto it = keyboard_layouts().find(language());
+    if (it == keyboard_layouts().end()) it = keyboard_layouts().find("EN");
     if (it == keyboard_layouts().end()) {
         rpg::script_error("VirtualKeyboard", "no keyboard layout for language " + language());
         return;

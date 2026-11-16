@@ -94,13 +94,14 @@ typedef struct {
     int* ids;
     PackEntry** bins;
     PackEntry** texs;
+    Buf* texts;
     Pack* pack;
 } MapJobs;
 
 static void map_job(void* ctx, int i) {
     MapJobs* mj = ctx;
     char* err = NULL;
-    if (!maps_build_one(mj->game, mj->ids[i], &mj->bins[i]->data, &mj->texs[i]->data, &err)) {
+    if (!maps_build_one(mj->game, mj->ids[i], &mj->bins[i]->data, &mj->texs[i]->data, &mj->texts[i], &err)) {
         mj->bins[i]->error = str_fmt("map %d: missing data", mj->ids[i]);
     } else if (err) {
         on_problem(err);
@@ -110,7 +111,7 @@ static void map_job(void* ctx, int i) {
     pack_ready(mj->pack, mj->texs[i]);
 }
 
-static int build_maps(Game* g, Node* infos, Pack* pack, int jobs) {
+static int build_maps(Game* g, Node* infos, Pack* pack, int jobs, Buf* text) {
     int* ids = NULL;
     int n = 0;
     for (size_t i = 0; infos && i < infos->count; i++) {
@@ -130,6 +131,7 @@ static int build_maps(Game* g, Node* infos, Pack* pack, int jobs) {
     mj.pack = pack;
     mj.bins = xmalloc(sizeof(PackEntry*) * (size_t)(n ? n : 1));
     mj.texs = xmalloc(sizeof(PackEntry*) * (size_t)(n ? n : 1));
+    mj.texts = xcalloc((size_t)(n ? n : 1), sizeof(Buf));
     int first = pack->count;
     for (int i = 0; i < n; i++) {
         char* a = str_fmt("maps/map%03d.bin", ids[i]);
@@ -146,6 +148,11 @@ static int build_maps(Game* g, Node* infos, Pack* pack, int jobs) {
     maps_init();
     run_jobs(map_job, &mj, n, jobs);
     maps_cleanup();
+    for (int i = 0; i < n; i++) {
+        buf_put(text, mj.texts[i].data, mj.texts[i].len);
+        buf_free(&mj.texts[i]);
+    }
+    free(mj.texts);
     free(mj.bins);
     free(mj.texs);
     free(ids);
@@ -326,7 +333,8 @@ static int build(Game* g, const char* out, const Options* o, char** target_out) 
     pack_flush(&pack);
     log_msg("maps");
     progress_phase("maps", NULL);
-    log_msg("  %d maps", build_maps(g, node_get(db, "mapInfos"), &pack, o->jobs));
+    Buf map_text = {0};
+    log_msg("  %d maps", build_maps(g, node_get(db, "mapInfos"), &pack, o->jobs, &map_text));
     pack_flush(&pack);
     log_msg("images");
     progress_phase("images", NULL);
@@ -342,7 +350,8 @@ static int build(Game* g, const char* out, const Options* o, char** target_out) 
     pack_flush(&pack);
     log_msg("fonts");
     progress_phase("fonts", NULL);
-    assets_build_fonts(g, db, lang, &pack, o->jobs);
+    assets_build_fonts(g, db, lang, &map_text, &pack, o->jobs);
+    buf_free(&map_text);
     node_free(lang);
     node_free(db);
     node_free(atlas);

@@ -21,6 +21,10 @@ bool load() {
         plat::log("failed to load game.bin");
         return false;
     }
+    std::string lang = default_language();
+    const Value* files = root()["languages"].find(lang.c_str());
+    if (files && files->size()) set_language(lang);
+    else if (lang != g_language) plat::log("no language files for %s", lang.c_str());
     return true;
 }
 
@@ -50,6 +54,11 @@ std::string plugin_param(const char* plugin_name, const char* key, const char* d
 }
 
 const std::string& language() { return g_language; }
+
+std::string default_language() {
+    std::string lang = plugin_param("Text_Language_Processor", "Default Language", "");
+    return lang.empty() ? std::string("en") : lang;
+}
 
 void set_language(const std::string& lang) {
     if (lang == g_language) return;

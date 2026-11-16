@@ -507,8 +507,7 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
     const float tcr = (float)tc.r, tcg = (float)tc.g, tcb = (float)tc.b;
     const float ocr = (float)oc.r, ocg = (float)oc.g, ocb = (float)oc.b;
     auto round_pos = [](float v) { return (uint32_t)(int)(v + 0.5f); };
-    const uint16_t* atlas = f->pixels();
-    if (!atlas) return;
+    if (f->pages.empty()) return;
     struct TextInk {
         uint32_t key;
         uint32_t stroke;
@@ -561,9 +560,10 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
             ph = 0;
             base += 1;
         }
-        const GlyphCell& q = g->phase[ph];
-        if (q.w > 0 && q.h > 0) {
-            const int qw = q.w, qh = q.h, qx = q.x, qy = q.y;
+        const GlyphCell& q = g->phase[ph].w > 0 || g->phase[0].w <= 0 ? g->phase[ph] : g->phase[0];
+        const uint16_t* cell = q.w > 0 && q.h > 0 ? f->cell_pixels(q) : nullptr;
+        if (cell) {
+            const int qw = q.w, qh = q.h;
             int py0 = (int)std::nearbyint(top_phys) + (int)q.oy;
             double px0 = base + q.ox;
             int dw = squeeze < 1.0 ? std::max(1, (int)std::lround(qw * squeeze * scale)) : (int)std::lround(qw * scale);
@@ -587,7 +587,7 @@ void Bitmap::draw_text(const std::string& text, double x, double y, double max_w
                 if (ty < 0 || ty >= cph) continue;
                 int sy = dh == qh ? yy : std::min(qh - 1, (int)((yy + 0.5) * qh / dh));
                 uint32_t* row = c.row(ty);
-                const uint16_t* srow = atlas + (size_t)(qy + sy) * atlas_stride + qx;
+                const uint16_t* srow = cell + (size_t)sy * atlas_stride;
                 for (int xx = x_lo; xx < x_hi; xx++) {
                     uint32_t sp;
                     if (direct) {

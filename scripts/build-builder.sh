@@ -21,7 +21,7 @@ for pair in "${engines[@]}"; do
   "$gen/embed" "$engines_dir/${pair%%:*}" "$gen/${pair##*:}.c" "${pair##*:}"
 done
 fonts=("NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallback.ttf:fallback_noto_symbols2" "NotoSansMath-Fallback.ttf:fallback_noto_math"
-  "NotoSansArabic-Fallback.ttf:fallback_noto_arabic" "NotoSansSC-Fallback.otf:fallback_noto_sc")
+  "NotoSansArabic-Fallback.ttf:fallback_noto_arabic" "NotoSansSC-Fallback.otf:fallback_noto_sc" "NotoSansKR-Fallback.otf:fallback_noto_kr")
 for pair in "${fonts[@]}"; do
   "$gen/embed" "$src/third_party/fallback_fonts/${pair%%:*}" "$gen/${pair##*:}.c" "${pair##*:}"
 done

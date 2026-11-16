@@ -31,6 +31,7 @@ std::shared_ptr<Document> lang_file(const std::string& file);
 const Value& lang_entry(const std::string& code);
 std::string lang_text(const std::string& code);
 const std::string& language();
+std::string default_language();
 void set_language(const std::string& lang);
 std::string js_string(const Value& v);
 

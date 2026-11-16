@@ -6,6 +6,13 @@
 
 #include "util.h"
 
-int font_build(const uint8_t* ttf, size_t ttf_len, int logical_size, int outline, const uint32_t* codepoints, int count, Buf* tex, Buf* fnt);
+typedef struct FontSet FontSet;
+
+FontSet* fontset_new(const uint8_t* primary, size_t len);
+void fontset_add(FontSet* fs, const uint8_t* data, size_t len);
+void fontset_add_cjk(FontSet* fs);
+void fontset_resolve(FontSet* fs, const uint32_t* cps, const uint32_t* freq, int count);
+void fontset_free(FontSet* fs);
+int font_build(const FontSet* fs, int logical_size, int outline, Buf* tex, Buf* fnt);
 
 #endif

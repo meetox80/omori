@@ -38,7 +38,8 @@ endforeach()
 set(FALLBACK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fallback_fonts)
 set(FALLBACK_BLOBS)
 foreach(pair "NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallback.ttf:fallback_noto_symbols2"
-             "NotoSansMath-Fallback.ttf:fallback_noto_math" "NotoSansArabic-Fallback.ttf:fallback_noto_arabic" "NotoSansSC-Fallback.otf:fallback_noto_sc")
+             "NotoSansMath-Fallback.ttf:fallback_noto_math" "NotoSansArabic-Fallback.ttf:fallback_noto_arabic" "NotoSansSC-Fallback.otf:fallback_noto_sc"
+             "NotoSansKR-Fallback.otf:fallback_noto_kr")
   string(REPLACE ":" ";" parts ${pair})
   list(GET parts 0 font_file)
   list(GET parts 1 font_sym)

@@ -541,6 +541,15 @@ void WindowBase::process_normal_character(TextState& ts) {
         c().text_blocked = true;
     }
     if (check_word_wrap(ts)) {
+        if (is_eastern_locale()) {
+            if (!letter_effects_active_) {
+                ts.index -= 1;
+            } else {
+                size_t end = ts.index;
+                g2d::decode_utf8(ts.text, end);
+                ts.index = end - 1;
+            }
+        }
         process_new_line(ts);
         return;
     }
@@ -762,7 +771,7 @@ double WindowBase::calc_text_height(const TextState& ts, bool all) {
 
 void WindowBase::prefetch_text_fonts(const std::string& text) {
     int size = c().font_size;
-    g2d::prefetch_font(c().font_face, size, c().outline_width > 0);
+    g2d::prefetch_font(c().font_face, size, c().outline_width > 0, text);
     for (size_t k = 0; k + 1 < text.size(); k++) {
         if (text[k] != ESC) continue;
         char n = text[k + 1];
@@ -775,7 +784,7 @@ void WindowBase::prefetch_text_fonts(const std::string& text) {
         } else {
             continue;
         }
-        g2d::prefetch_font(c().font_face, c().font_size, c().outline_width > 0);
+        g2d::prefetch_font(c().font_face, c().font_size, c().outline_width > 0, text);
     }
     c().font_size = size;
 }
@@ -1137,11 +1146,15 @@ bool WindowBase::check_word_wrap(TextState& ts) {
     }
     if (ts.index == 0) return false;
     if (!word_wrap_) return false;
-    std::string next = ts.text.substr(ts.index, 1);
+    size_t one = ts.index;
+    if (one < ts.text.size()) g2d::decode_utf8(ts.text, one);
+    std::string next = ts.text.substr(ts.index, one - ts.index);
     double scale = (double)c().font_size / standard_font_size();
     double size = text_width_ex_check(next) * scale;
     if (ts.x + size > wordwrap_width()) return !can_line_break(0, next);
-    next = ts.text.substr(ts.index, 2);
+    size_t two = one;
+    if (two < ts.text.size()) g2d::decode_utf8(ts.text, two);
+    next = ts.text.substr(ts.index, two - ts.index);
     size = text_width_ex_check(next) * scale;
     if (ts.x + size > wordwrap_width()) return can_line_break(1, next);
     return false;
@@ -1308,7 +1321,10 @@ bool WindowBase::can_line_break(int type, const std::string& ch) {
     return (type == 0 ? before : after).find(ch) != std::string::npos;
 }
 
-bool WindowBase::is_eastern_locale() { return false; }
+bool WindowBase::is_eastern_locale() {
+    static const bool eastern = data::root()["twoByteLineBreak"].truthy();
+    return eastern;
+}
 
 void WindowBase::init_letter_effects() {
     clear_letter_effect_sprites();

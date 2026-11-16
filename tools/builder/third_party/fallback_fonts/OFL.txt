@@ -3,9 +3,10 @@ Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols)
 Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic)
 Copyright 2022 Google LLC. All Rights Reserved. (Noto Sans Math)
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. (Noto Sans SC)
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. (Noto Sans KR)
 
 The files in this folder are subsets of Noto Sans, Noto Sans Symbols 2, Noto Sans Arabic,
-Noto Sans Math and Noto Sans SC.
+Noto Sans Math, Noto Sans SC and Noto Sans KR.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

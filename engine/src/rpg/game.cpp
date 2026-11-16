@@ -1,10 +1,12 @@
 #include "game.h"
 
 #include <cmath>
+#include <cstring>
 #include <memory>
 
 #include "../core/image.h"
 #include "../core/regex.h"
+#include "../gfx2d/text.h"
 #include "../js/vm.h"
 #include "../platform/platform.h"
 #include "battler.h"
@@ -205,23 +207,36 @@ bool is_route_ff_disabled() {
 }
 }
 
-bool is_text_in_current_language(const std::string& text) {
-    size_t i = 0;
-    while (i < text.size()) {
-        unsigned char c = (unsigned char)text[i];
-        if (c < 0x80) {
-            bool ok = std::isalnum(c) || std::string("!@#$%^&*()_+-=[]{};':\"\\|,.<>/? ").find((char)c) != std::string::npos;
-            if (!ok) return false;
-            i++;
-            continue;
-        }
-        if (text.compare(i, 3, "\xE2\x98\x86") == 0) {
-            i += 3;
-            continue;
-        }
-        return false;
+static bool in_ascii_set(uint32_t cp, bool letters) {
+    if (cp >= '0' && cp <= '9') return true;
+    if (letters && ((cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z'))) return true;
+    return cp < 0x80 && cp != 0 && std::strchr("!@#$%^&*()_+-=[]{};':\"\\|,.<>/? ", (int)cp) != nullptr;
+}
+
+static bool all_in(const std::string& text, bool (*ok)(uint32_t)) {
+    for (size_t i = 0; i < text.size();) {
+        if (!ok(g2d::decode_utf8(text, i))) return false;
     }
     return true;
+}
+
+static bool english_char(uint32_t cp) { return in_ascii_set(cp, true) || cp == 0x2606; }
+
+static bool japanese_char(uint32_t cp) {
+    return (cp >= 0x3000 && cp <= 0x30FF) || (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x4E00 && cp <= 0x9FAF) || cp == 0x2605 || cp == 0x2606 ||
+           (cp >= 0x2190 && cp <= 0x2195) || cp == 0x203B || in_ascii_set(cp, false);
+}
+
+static bool korean_char(uint32_t cp) { return (cp >= 0x3131 && cp <= 0x3163) || (cp >= 0xAC00 && cp <= 0xD7A3) || cp == 0x2606 || in_ascii_set(cp, false); }
+
+static bool chinese_char(uint32_t cp) { return (cp >= 0x4E00 && cp <= 0x9EFF) || (cp >= 0x3000 && cp <= 0x303F) || cp == 0x2606 || in_ascii_set(cp, false); }
+
+bool is_text_in_current_language(const std::string& text) {
+    std::string lang = data::default_language();
+    if (lang == "jp") return all_in(text, japanese_char);
+    if (lang == "kr") return all_in(text, korean_char) && all_in(text, chinese_char);
+    if (lang == "sc") return all_in(text, chinese_char);
+    return all_in(text, english_char);
 }
 
 }

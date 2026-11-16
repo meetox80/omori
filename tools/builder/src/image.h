@@ -32,7 +32,7 @@ Image* img_resize_box(const Image* img, int w, int h, Filter filter, float x0, f
 
 void tex_scaled_size(int w, int h, int* ow, int* oh);
 int tex_encode(const Image* premul, int orig_w, int orig_h, Buf* out);
-int tex_encode_font(const Image* premul, Buf* out);
+int tex_encode_font(const Image* premul, const int* page_y, int npages, Buf* out);
 int tex_from_png(const uint8_t* png, size_t len, int cells_x, int cells_y, Buf* out);
 int tex_from_image(const Image* straight, int cells_x, int cells_y, int cell_chunks, Buf* out);
 int png_encode(const Image* img, int with_alpha, Buf* out);

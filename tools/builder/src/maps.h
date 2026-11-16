@@ -6,6 +6,6 @@
 
 void maps_init(void);
 void maps_cleanup(void);
-int maps_build_one(Game* g, int id, Buf* bin, Buf* tex, char** err);
+int maps_build_one(Game* g, int id, Buf* bin, Buf* tex, Buf* text, char** err);
 
 #endif

@@ -414,7 +414,7 @@ int assets_build_audio(Game* g, Pack* pack, int jobs) {
 }
 
 typedef struct {
-    uint8_t* seen;
+    uint32_t* count;
 } CharSet;
 
 static void cs_add_utf8(CharSet* cs, const char* p0, size_t len) {
@@ -453,7 +453,7 @@ static void cs_add_utf8(CharSet* cs, const char* p0, size_t len) {
             continue;
         }
         p += n;
-        if (cp < 0x110000) cs->seen[cp] = 1;
+        if (cp < 0x110000 && cs->count[cp] < 0xFFFFFFFFu) cs->count[cp]++;
     }
 }
 
@@ -471,10 +471,7 @@ static void cs_add_node(CharSet* cs, const Node* v) {
 static const int FONT_SIZES[] = {12, 14, 16, 18, 20, 22, 23, 24, 25, 26, 28, 30, 32, 34, 36, 38, 40, 48, 72};
 
 typedef struct {
-    const uint8_t* ttf;
-    size_t ttf_len;
-    uint32_t* cps;
-    int ncps;
+    const FontSet* fs;
     int nsizes;
     PackEntry** tex;
     PackEntry** fnt;
@@ -486,23 +483,67 @@ static void font_job(void* ctx, int i) {
     FontJobs* fj = ctx;
     int size = FONT_SIZES[i % fj->nsizes];
     int outline = i >= fj->nsizes;
-    fj->ok[i] = font_build(fj->ttf, fj->ttf_len, size, outline, fj->cps, fj->ncps, &fj->tex[i]->data, &fj->fnt[i]->data);
+    fj->ok[i] = font_build(fj->fs, size, outline, &fj->tex[i]->data, &fj->fnt[i]->data);
     pack_ready(fj->pack, fj->tex[i]);
     pack_ready(fj->pack, fj->fnt[i]);
 }
 
-static void build_family(Game* g, const char* file, const char* family, uint32_t* cps, int n, Pack* pack, int jobs) {
-    Buf ttf = {0};
-    char* rel = str_fmt("fonts/%s", file);
-    if (!game_read(g, rel, &ttf)) fatal("missing %s", rel);
-    free(rel);
+typedef struct {
+    char* name;
+    Buf data;
+} GameFont;
+
+static int same_ci(const char* a, const char* b) {
+    while (*a && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+        a++;
+        b++;
+    }
+    return tolower((unsigned char)*a) == tolower((unsigned char)*b);
+}
+
+static int is_font_file(const char* name) {
+    size_t n = strlen(name);
+    if (n < 4) return 0;
+    const char* ext = name + n - 4;
+    return same_ci(ext, ".ttf") || same_ci(ext, ".otf") || same_ci(ext, ".ttc");
+}
+
+static GameFont* load_game_fonts(Game* g, int* count) {
+    int nfiles;
+    char** files = game_stored_files(g, "fonts", &nfiles);
+    GameFont* out = xcalloc((size_t)(nfiles ? nfiles : 1), sizeof(GameFont));
+    int n = 0;
+    for (int i = 0; i < nfiles; i++) {
+        char* logical = game_logical(files[i]);
+        const char* base = strrchr(logical, '/');
+        base = base ? base + 1 : logical;
+        if (is_font_file(base) && game_read_stored(g, files[i], &out[n].data)) out[n++].name = xstrdup(base);
+        else buf_free(&out[n].data);
+        free(logical);
+    }
+    str_list_free(files, nfiles);
+    *count = n;
+    return out;
+}
+
+static void build_family(const char* file, const char* family, GameFont* fonts, int nfonts, const uint32_t* cps, const uint32_t* freq, int n, Pack* pack,
+                         int jobs) {
+    const GameFont* own = NULL;
+    for (int i = 0; i < nfonts; i++) {
+        if (same_ci(fonts[i].name, file)) own = &fonts[i];
+    }
+    if (!own) fatal("missing fonts/%s", file);
+    FontSet* fs = fontset_new(own->data.data, own->data.len);
+    if (!fs) fatal("unreadable fonts/%s", file);
+    for (int i = 0; i < nfonts; i++) {
+        if (&fonts[i] != own) fontset_add(fs, fonts[i].data.data, fonts[i].data.len);
+    }
+    fontset_add_cjk(fs);
+    fontset_resolve(fs, cps, freq, n);
     int nsizes = (int)(sizeof(FONT_SIZES) / sizeof(FONT_SIZES[0]));
     int total = nsizes * 2;
     FontJobs fj;
-    fj.ttf = ttf.data;
-    fj.ttf_len = ttf.len;
-    fj.cps = cps;
-    fj.ncps = n;
+    fj.fs = fs;
     fj.nsizes = nsizes;
     fj.tex = xmalloc(sizeof(PackEntry*) * (size_t)total);
     fj.fnt = xmalloc(sizeof(PackEntry*) * (size_t)total);
@@ -529,28 +570,39 @@ static void build_family(Game* g, const char* file, const char* family, uint32_t
     free(fj.tex);
     free(fj.fnt);
     free(fj.ok);
-    buf_free(&ttf);
+    fontset_free(fs);
 }
 
-void assets_build_fonts(Game* g, Node* db, Node* lang, Pack* pack, int jobs) {
+void assets_build_fonts(Game* g, Node* db, Node* lang, const Buf* map_text, Pack* pack, int jobs) {
     CharSet cs;
-    cs.seen = xcalloc(0x110000, 1);
-    for (int c = 0x20; c < 0x7F; c++) cs.seen[c] = 1;
+    cs.count = xcalloc(0x110000, sizeof(uint32_t));
+    for (int c = 0x20; c < 0x7F; c++) cs.count[c]++;
     cs_add_node(&cs, lang);
-    const char* keys[] = {"actors", "classes", "skills", "items", "weapons", "armors", "enemies", "states", "system", "mapInfos", "quests", NULL};
-    for (int i = 0; keys[i]; i++) cs_add_node(&cs, node_get(db, keys[i]));
+    cs_add_node(&cs, db);
+    if (map_text) cs_add_utf8(&cs, (const char*)map_text->data, map_text->len);
     cs_add_utf8(&cs, "\xE2\x80\xA6\xE2\x80\x94\xE2\x80\x99\xE2\x80\x98\xE2\x80\x9C\xE2\x80\x9D\xC3\xA9\xC3\x97\xE2\x86\x91\xE2\x86\x93\xE2\x86\x90\xE2\x86\x92\xE2\x87\xAA\xE2\x8C\xAB", 40);
     uint32_t* cps = NULL;
+    uint32_t* freq = NULL;
     int n = 0;
     for (uint32_t c = 0x20; c < 0x110000; c++) {
-        if (!cs.seen[c] || c == 0x7F || (c >= 0x80 && c < 0xA0)) continue;
+        if (!cs.count[c] || c == 0x7F || (c >= 0x80 && c < 0xA0) || (c >= 0xD800 && c < 0xE000)) continue;
         cps = xrealloc(cps, sizeof(uint32_t) * (size_t)(n + 1));
-        cps[n++] = c;
+        freq = xrealloc(freq, sizeof(uint32_t) * (size_t)(n + 1));
+        cps[n] = c;
+        freq[n++] = cs.count[c];
     }
-    free(cs.seen);
-    build_family(g, "OMORI_GAME2.ttf", "game", cps, n, pack, jobs);
-    build_family(g, "OMORI_GAME.ttf", "omori", cps, n, pack, jobs);
+    free(cs.count);
+    int nfonts;
+    GameFont* fonts = load_game_fonts(g, &nfonts);
+    build_family("OMORI_GAME2.ttf", "game", fonts, nfonts, cps, freq, n, pack, jobs);
+    build_family("OMORI_GAME.ttf", "omori", fonts, nfonts, cps, freq, n, pack, jobs);
+    for (int i = 0; i < nfonts; i++) {
+        free(fonts[i].name);
+        buf_free(&fonts[i].data);
+    }
+    free(fonts);
     free(cps);
+    free(freq);
 }
 
 static Image* fit_rgb(const Image* src, int w, int h, uint32_t bg) {

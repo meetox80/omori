@@ -889,46 +889,56 @@ static int cell_blocks(const Image* pm, int cells_x, int cells_y, int* bw, int* 
     return 1;
 }
 
-int tex_encode_font(const Image* pm, Buf* out) {
-    size_t n = (size_t)pm->w * pm->h, raw_len = n * 2;
-    uint8_t* raw = xmalloc(raw_len ? raw_len : 1);
-    for (size_t i = 0; i < n; i++) {
-        raw[i * 2] = pm->px[i * 4];
-        raw[i * 2 + 1] = pm->px[i * 4 + 3];
+int tex_encode_font(const Image* pm, const int* page_y, int npages, Buf* out) {
+    Buf table = {0}, data = {0};
+    uint32_t data_at = 20 + (uint32_t)npages * 24;
+    int ok = 1;
+    for (int p = 0; p < npages && ok; p++) {
+        int y0 = page_y[p], y1 = p + 1 < npages ? page_y[p + 1] : pm->h;
+        size_t n = (size_t)pm->w * (size_t)(y1 - y0), raw_len = n * 2;
+        uint8_t* raw = xmalloc(raw_len ? raw_len : 1);
+        const uint8_t* src = pm->px + (size_t)y0 * (size_t)pm->w * 4;
+        for (size_t i = 0; i < n; i++) {
+            raw[i * 2] = src[i * 4];
+            raw[i * 2 + 1] = src[i * 4 + 3];
+        }
+        mz_ulong clen = mz_compressBound((mz_ulong)raw_len);
+        size_t at = data.len;
+        buf_reserve(&data, clen);
+        ok = mz_compress2(data.data + at, &clen, raw, (mz_ulong)raw_len, 9) == MZ_OK;
+        free(raw);
+        if (!ok) break;
+        data.len = at + clen;
+        buf_u16(&table, 0);
+        buf_u16(&table, (uint16_t)y0);
+        buf_u16(&table, (uint16_t)pm->w);
+        buf_u16(&table, (uint16_t)(y1 - y0));
+        buf_u16(&table, (uint16_t)pm->w);
+        buf_u16(&table, (uint16_t)(y1 - y0));
+        buf_u32(&table, data_at + (uint32_t)at);
+        buf_u32(&table, (uint32_t)clen);
+        buf_u32(&table, (uint32_t)raw_len);
     }
-    mz_ulong clen = mz_compressBound((mz_ulong)raw_len);
-    Buf comp = {0};
-    buf_reserve(&comp, clen);
-    int ok = mz_compress2(comp.data, &clen, raw, (mz_ulong)raw_len, 9) == MZ_OK;
-    free(raw);
-    if (!ok) {
-        buf_free(&comp);
-        return 0;
+    if (ok && npages > 0 && pm->h <= 0xFFFF) {
+        buf_put(out, "TTEX", 4);
+        buf_u8(out, 1);
+        buf_u8(out, TEX_FORMAT_FONT);
+        buf_u8(out, 0);
+        buf_u8(out, 0);
+        buf_u16(out, (uint16_t)pm->w);
+        buf_u16(out, (uint16_t)pm->h);
+        buf_u16(out, (uint16_t)pm->w);
+        buf_u16(out, (uint16_t)pm->h);
+        buf_u16(out, (uint16_t)npages);
+        buf_u16(out, 0);
+        buf_put(out, table.data, table.len);
+        buf_put(out, data.data, data.len);
+    } else {
+        ok = 0;
     }
-    size_t start = out->len;
-    buf_put(out, "TTEX", 4);
-    buf_u8(out, 1);
-    buf_u8(out, TEX_FORMAT_FONT);
-    buf_u8(out, 0);
-    buf_u8(out, 0);
-    buf_u16(out, (uint16_t)pm->w);
-    buf_u16(out, (uint16_t)pm->h);
-    buf_u16(out, (uint16_t)pm->w);
-    buf_u16(out, (uint16_t)pm->h);
-    buf_u16(out, 1);
-    buf_u16(out, 0);
-    buf_u16(out, 0);
-    buf_u16(out, 0);
-    buf_u16(out, (uint16_t)pm->w);
-    buf_u16(out, (uint16_t)pm->h);
-    buf_u16(out, (uint16_t)pm->w);
-    buf_u16(out, (uint16_t)pm->h);
-    buf_u32(out, (uint32_t)(out->len - start) + 12);
-    buf_u32(out, (uint32_t)clen);
-    buf_u32(out, (uint32_t)raw_len);
-    buf_put(out, comp.data, clen);
-    buf_free(&comp);
-    return 1;
+    buf_free(&table);
+    buf_free(&data);
+    return ok;
 }
 
 static Image* resize_cells(const Image* img, int cols, int rows) {
