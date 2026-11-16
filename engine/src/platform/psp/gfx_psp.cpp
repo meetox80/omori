@@ -13,6 +13,7 @@
 #include <cstring>
 #include <iterator>
 #include <map>
+#include <new>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -152,11 +153,22 @@ static void* arena_alloc(size_t bytes) {
     void* out = nullptr;
     if (best != g_arena.free_blocks.end()) {
         uint32_t at = best->first, len = best->second;
-        g_arena.free_blocks.erase(best);
-        if (len > need) g_arena.free_blocks[at + need] = len - need;
-        g_arena.used_blocks[at] = need;
-        g_arena.free_bytes -= need;
-        out = g_arena.base + at;
+        bool tracked = false;
+        try {
+            g_arena.used_blocks.emplace(at, need);
+            tracked = true;
+        } catch (const std::bad_alloc&) {
+        }
+        if (tracked) {
+            auto node = g_arena.free_blocks.extract(best);
+            if (len > need) {
+                node.key() = at + need;
+                node.mapped() = len - need;
+                g_arena.free_blocks.insert(std::move(node));
+            }
+            g_arena.free_bytes -= need;
+            out = g_arena.base + at;
+        }
     }
     g_arena_owner = -1;
     sceKernelSignalSema(g_arena.lock, 1);
@@ -172,21 +184,33 @@ static void arena_release(void* p) {
     auto u = g_arena.used_blocks.find(at);
     if (u != g_arena.used_blocks.end()) {
         uint32_t len = u->second;
-        g_arena.used_blocks.erase(u);
-        g_arena.free_bytes += len;
         auto next = g_arena.free_blocks.lower_bound(at);
-        if (next != g_arena.free_blocks.end() && next->first == at + len) {
-            len += next->second;
-            next = g_arena.free_blocks.erase(next);
-        }
-        if (next != g_arena.free_blocks.begin()) {
-            auto prev = std::prev(next);
-            if (prev->first + prev->second == at) {
-                prev->second += len;
-                len = 0;
+        auto prev = next == g_arena.free_blocks.begin() ? g_arena.free_blocks.end() : std::prev(next);
+        bool join_next = next != g_arena.free_blocks.end() && next->first == at + len;
+        bool join_prev = prev != g_arena.free_blocks.end() && prev->first + prev->second == at;
+        bool placed = true;
+        if (join_prev) {
+            prev->second += len;
+            if (join_next) {
+                prev->second += next->second;
+                g_arena.free_blocks.erase(next);
+            }
+        } else if (join_next) {
+            auto node = g_arena.free_blocks.extract(next);
+            node.key() = at;
+            node.mapped() += len;
+            g_arena.free_blocks.insert(std::move(node));
+        } else {
+            try {
+                g_arena.free_blocks.emplace(at, len);
+            } catch (const std::bad_alloc&) {
+                placed = false;
             }
         }
-        if (len) g_arena.free_blocks[at] = len;
+        if (placed) {
+            g_arena.used_blocks.erase(u);
+            g_arena.free_bytes += len;
+        }
     }
     g_arena_owner = -1;
     sceKernelSignalSema(g_arena.lock, 1);
@@ -194,8 +218,10 @@ static void arena_release(void* p) {
 
 size_t arena_free_bytes() { return g_arena.free_bytes; }
 
+bool arena_held() { return g_arena_owner == sceKernelGetThreadId(); }
+
 void* arena_try_alloc(size_t bytes) {
-    if (g_arena_owner == sceKernelGetThreadId()) return nullptr;
+    if (arena_held()) return nullptr;
     arena_init();
     return arena_alloc(bytes);
 }

@@ -17,10 +17,12 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <csignal>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <new>
 #include <string>
 #include <vector>
@@ -46,6 +48,36 @@ static void append_log(const char* text, size_t len) {
     sceIoWrite(fd, text, len);
     sceIoClose(fd);
 }
+
+[[noreturn]] static void fatal_exit(const char* what) {
+    SceKernelThreadInfo info;
+    std::memset(&info, 0, sizeof(info));
+    info.size = sizeof(info);
+    const char* thread = sceKernelReferThreadStatus(sceKernelGetThreadId(), &info) >= 0 ? info.name : "unknown";
+    char line[256];
+    int n = std::snprintf(line, sizeof(line), "fatal: %s in thread %s at frame %u\n", what, thread, (unsigned)g_frame);
+    if (n > 0) append_log(line, std::min((size_t)n, sizeof(line) - 1));
+    sceKernelExitGame();
+    for (;;) sceKernelSleepThread();
+}
+
+static void on_terminate() {
+    const char* what = "uncaught exception";
+    std::exception_ptr e = std::current_exception();
+    if (e) {
+        try {
+            std::rethrow_exception(e);
+        } catch (const std::bad_alloc&) {
+            what = "out of memory";
+        } catch (const std::exception& x) {
+            what = x.what();
+        } catch (...) {
+        }
+    }
+    fatal_exit(what);
+}
+
+static void on_abort(int) { fatal_exit("abort"); }
 
 static volatile bool g_resumed = false;
 
@@ -103,6 +135,8 @@ bool init(int argc, char** argv) {
     make_dir(g_opt.save_root);
     std::snprintf(g_log_path, sizeof(g_log_path), "%s/log.txt", base.c_str());
     sceIoRemove(g_log_path);
+    std::set_terminate(on_terminate);
+    std::signal(SIGABRT, on_abort);
     g_opt.shot_prefix = base + "/shot";
     std::vector<std::string> args = testing::read_args_file(base + "/args.txt");
     for (auto& a : args) {
@@ -327,12 +361,18 @@ void unlock() {
 
 }
 
+namespace gfx {
+bool arena_held();
+}
+
 static void (*g_low_memory)() = nullptr;
 static SceUID g_main_thread = -1;
 static bool g_in_low_memory = false;
 
+static bool can_relieve() { return g_low_memory && !g_in_low_memory && sceKernelGetThreadId() == g_main_thread && !gfx::arena_held(); }
+
 static int relieve_shared_alloc(size_t size) {
-    if (!g_low_memory || g_in_low_memory || sceKernelGetThreadId() != g_main_thread) return 0;
+    if (!can_relieve()) return 0;
     g_in_low_memory = true;
     g_low_memory();
     g_in_low_memory = false;
@@ -357,7 +397,7 @@ static void* checked_alloc(size_t size) {
     if (size == 0) size = 1;
     void* p = size >= LARGE_BLOCK ? gfx::arena_try_alloc(size) : nullptr;
     if (!p) p = std::malloc(size);
-    if (!p && g_low_memory && !g_in_low_memory && sceKernelGetThreadId() == g_main_thread) {
+    if (!p && can_relieve()) {
         g_in_low_memory = true;
         g_low_memory();
         g_in_low_memory = false;
