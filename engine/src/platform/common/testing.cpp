@@ -1,5 +1,6 @@
 #include "testing.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <set>
@@ -30,6 +31,7 @@ static std::vector<std::pair<uint64_t, std::string>> g_evals;
 struct Touch {
     uint64_t frame;
     int x, y, duration;
+    int to_x = -1, to_y = -1;
 };
 
 static std::vector<Touch> g_touches;
@@ -130,6 +132,12 @@ static void load_script(const std::string& path) {
             if (t.duration <= 0) t.duration = 2;
             g_touches.push_back(t);
             cursor += t.duration + 6;
+        } else if (a == "drag") {
+            Touch t{cursor, std::atoi(b.c_str()), 0, 2};
+            ss >> t.y >> t.to_x >> t.to_y >> t.duration;
+            if (t.duration <= 1) t.duration = 2;
+            g_touches.push_back(t);
+            cursor += t.duration + 6;
         } else if (a == "press" || a == "hold") {
             ss >> dur;
             if (dur <= 0) dur = (a == "press") ? 2 : 30;
@@ -170,6 +178,11 @@ bool touch(uint64_t frame, int& x, int& y) {
         if (frame >= t.frame && frame < t.frame + (uint64_t)t.duration) {
             x = t.x;
             y = t.y;
+            if (t.to_x >= 0) {
+                double k = (double)(frame - t.frame) / (t.duration - 1);
+                x = (int)std::lround(t.x + (t.to_x - t.x) * k);
+                y = (int)std::lround(t.y + (t.to_y - t.y) * k);
+            }
             return true;
         }
     }
