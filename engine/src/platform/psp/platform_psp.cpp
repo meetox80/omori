@@ -37,7 +37,15 @@ static Options g_opt;
 static volatile bool g_running = true;
 static uint32_t g_buttons = 0;
 static uint64_t g_frame = 0;
-static FILE* g_log = nullptr;
+static char g_log_path[256] = "";
+
+static void append_log(const char* text, size_t len) {
+    if (!g_log_path[0] || !len) return;
+    SceUID fd = sceIoOpen(g_log_path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
+    if (fd < 0) return;
+    sceIoWrite(fd, text, len);
+    sceIoClose(fd);
+}
 
 static volatile bool g_resumed = false;
 
@@ -93,7 +101,8 @@ bool init(int argc, char** argv) {
     g_opt.data_root = argc > 0 && argv[0] && std::string(argv[0]).find(".PBP") != std::string::npos ? std::string(argv[0]) : base + "/EBOOT.PBP";
     g_opt.save_root = base + "/saves";
     make_dir(g_opt.save_root);
-    g_log = std::fopen((base + "/log.txt").c_str(), "w");
+    std::snprintf(g_log_path, sizeof(g_log_path), "%s/log.txt", base.c_str());
+    sceIoRemove(g_log_path);
     g_opt.shot_prefix = base + "/shot";
     std::vector<std::string> args = testing::read_args_file(base + "/args.txt");
     for (auto& a : args) {
@@ -111,7 +120,6 @@ bool init(int argc, char** argv) {
 void shutdown() {
     audio_out::stop();
     gfx::shutdown();
-    if (g_log) std::fclose(g_log);
     sceKernelExitGame();
 }
 
@@ -198,13 +206,16 @@ const std::string& save_root() { return g_opt.save_root; }
 bool make_dir(const std::string& path) { return sceIoMkdir(path.c_str(), 0777) >= 0; }
 
 void log(const char* fmt, ...) {
-    if (!g_log) return;
+    if (!g_log_path[0]) return;
+    char line[1024];
     va_list ap;
     va_start(ap, fmt);
-    std::vfprintf(g_log, fmt, ap);
+    int n = std::vsnprintf(line, sizeof(line) - 1, fmt, ap);
     va_end(ap);
-    std::fputc('\n', g_log);
-    std::fflush(g_log);
+    if (n < 0) return;
+    size_t len = std::min((size_t)n, sizeof(line) - 2);
+    line[len++] = '\n';
+    append_log(line, len);
 }
 
 bool debug_warp(int& map, int& x, int& y, int& d) { return testing::warp_due(g_frame, map, x, y, d); }
