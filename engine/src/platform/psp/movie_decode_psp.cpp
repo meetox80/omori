@@ -2,6 +2,7 @@
 
 #include <pspjpeg.h>
 #include <pspkernel.h>
+#include <pspsdk.h>
 #include <psputility.h>
 
 #include <cstring>
@@ -61,6 +62,7 @@ bool decode(const uint8_t* jpeg, size_t len, uint32_t* dst, int stride, int rows
 }
 
 static int thread_entry(SceSize args, void* argp) {
+    pspSdkDisableFPUExceptions();
     void (*fn)() = nullptr;
     if (args >= sizeof(fn)) std::memcpy(&fn, argp, sizeof(fn));
     if (fn) fn();

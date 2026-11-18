@@ -12,6 +12,7 @@
 #include <pspiofilemgr.h>
 #include <pspkernel.h>
 #include <psppower.h>
+#include <pspsdk.h>
 #include <psprtc.h>
 #include <psputility.h>
 #include <sys/stat.h>
@@ -92,6 +93,7 @@ static int power_callback(int, int info, void*) {
 }
 
 static int callback_thread(SceSize, void*) {
+    pspSdkDisableFPUExceptions();
     int cbid = sceKernelCreateCallback("exit", exit_callback, nullptr);
     sceKernelRegisterExitCallback(cbid);
     int pcb = sceKernelCreateCallback("power", power_callback, nullptr);
@@ -120,6 +122,7 @@ static void measure_heap() {
 size_t heap_limit() { return g_heap_limit; }
 
 bool init(int argc, char** argv) {
+    pspSdkDisableFPUExceptions();
     measure_heap();
     int th = sceKernelCreateThread("callbacks", callback_thread, 0x11, 0xFA0, 0, nullptr);
     if (th >= 0) sceKernelStartThread(th, 0, nullptr);
@@ -273,6 +276,7 @@ struct Mutex {
 };
 
 static int thread_entry(SceSize size, void* args) {
+    pspSdkDisableFPUExceptions();
     ThreadFn fn = nullptr;
     if (size == sizeof(fn)) std::memcpy(&fn, args, sizeof(fn));
     if (fn) fn();
@@ -312,6 +316,7 @@ static volatile bool g_run = false;
 static int16_t __attribute__((aligned(64))) g_buf[2][BLOCK * 2];
 
 static int audio_thread(SceSize, void*) {
+    pspSdkDisableFPUExceptions();
     int cur = 0;
     while (g_run) {
         lock();
