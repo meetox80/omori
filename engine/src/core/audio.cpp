@@ -301,6 +301,7 @@ static int g_vol[4] = {100, 100, 100, 100};
 static Track g_cur_bgm, g_cur_bgs, g_cur_me;
 static bool g_bgm_valid = false, g_bgs_valid = false, g_me_valid = false;
 static bool g_bgm_held = false;
+static bool g_bgm_buffer = false, g_bgs_buffer = false;
 static std::unordered_map<std::string, std::shared_ptr<Pcm>> g_se_cache;
 static std::vector<std::string> g_se_order;
 static size_t g_se_bytes = 0;
@@ -1010,6 +1011,7 @@ void play_bgm(const Track& t, double pos) {
     g_cur_bgm = t;
     g_cur_bgm.pos = pos;
     g_bgm_valid = !t.name.empty();
+    if (g_bgm_valid) g_bgm_buffer = true;
 }
 
 void stop_bgm() {
@@ -1019,6 +1021,7 @@ void stop_bgm() {
     audio_out::unlock();
     g_bgm_held = false;
     g_bgm_valid = false;
+    g_bgm_buffer = false;
     g_cur_bgm = Track();
 }
 
@@ -1043,8 +1046,6 @@ void fadein_bgm(double seconds) {
     audio_out::unlock();
     fade(g_bgm, seconds, 1, false);
 }
-
-bool bgm_playing() { return g_bgm.active; }
 
 Track current_bgm() { return g_bgm_valid ? g_cur_bgm : Track(); }
 
@@ -1084,6 +1085,7 @@ void play_bgs(const Track& t, double pos) {
     }
     g_cur_bgs = t;
     g_bgs_valid = !t.name.empty();
+    if (g_bgs_valid) g_bgs_buffer = true;
 }
 
 void stop_bgs() {
@@ -1091,6 +1093,7 @@ void stop_bgs() {
     reset_voice(g_bgs);
     audio_out::unlock();
     g_bgs_valid = false;
+    g_bgs_buffer = false;
     g_cur_bgs = Track();
 }
 
@@ -1141,6 +1144,37 @@ void fadeout_me(double seconds) {
 }
 
 bool me_playing() { return busy(g_me); }
+
+static Voice& buffer_voice(Buffer b) { return b == Buffer::Bgm ? g_bgm : b == Buffer::Bgs ? g_bgs : g_me; }
+
+static int buffer_kind(Buffer b) { return b == Buffer::Bgm ? K_BGM : b == Buffer::Bgs ? K_BGS : K_ME; }
+
+bool buffer_exists(Buffer b) {
+    switch (b) {
+    case Buffer::Bgm: return g_bgm_buffer;
+    case Buffer::Bgs: return g_bgs_buffer;
+    case Buffer::Me: return g_me_valid;
+    }
+    return false;
+}
+
+bool buffer_playing(Buffer b) { return buffer_voice(b).active; }
+
+double buffer_position(Buffer b) {
+    const Voice& v = buffer_voice(b);
+    return busy(v) ? voice_pos(v) : 0;
+}
+
+double buffer_gain(Buffer b) {
+    const Voice& v = buffer_voice(b);
+    double level = 0;
+    audio_out::lock();
+    if (v.active) level = (double)v.vol_q / 32768.0 * ((double)v.gain / (1 << 24));
+    else if (v.pending) level = std::clamp(v.pending_track.volume, 0, 100) / 100.0 * ((double)v.pending_gain / (1 << 24));
+    level *= std::clamp(g_vol[buffer_kind(b)], 0, 100) / 100.0;
+    audio_out::unlock();
+    return level;
+}
 
 static Voice* pick_se_slot() {
     for (auto& v : g_se) {
@@ -1248,11 +1282,6 @@ bool se_playing() {
         if (v.active) return true;
     }
     return false;
-}
-
-double bgm_position() {
-    if (!g_bgm_valid || !busy(g_bgm)) return 0;
-    return voice_pos(g_bgm);
 }
 
 void stop_se() {

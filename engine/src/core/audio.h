@@ -22,8 +22,6 @@ void play_bgm(const Track& t, double pos = 0);
 void stop_bgm();
 void fadeout_bgm(double seconds);
 void fadein_bgm(double seconds);
-bool bgm_playing();
-double bgm_position();
 Track current_bgm();
 Track save_bgm();
 void replay_bgm(const Track& t);
@@ -37,6 +35,12 @@ void play_me(const Track& t);
 void stop_me();
 void fadeout_me(double seconds);
 bool me_playing();
+
+enum class Buffer { Bgm, Bgs, Me };
+bool buffer_exists(Buffer b);
+bool buffer_playing(Buffer b);
+double buffer_position(Buffer b);
+double buffer_gain(Buffer b);
 
 void play_se(const Track& t);
 void stop_se();

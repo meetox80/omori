@@ -323,11 +323,28 @@ void bind_scene_manager() {
     kl.method("currentWorldIndex", [](js::JsObject&, js::Vm&, Args&) { return Val::num(current_world_index()); });
 }
 
-Val audio_buffer_js(bool bgm) {
+static Val audio_gain_param(audio::Buffer b) {
+    static js::HostClass cls;
+    if (!cls.name) {
+        cls.name = "AudioParam";
+        cls.get = [](js::Vm&, js::Obj* self, uint32_t key, Val& out) {
+            static const uint32_t value_key = js::atom("value");
+            if (key != value_key) return false;
+            out = Val::num(audio::buffer_gain((audio::Buffer)self->id));
+            return true;
+        };
+    }
+    return js::make_host(&cls, nullptr, (int64_t)b);
+}
+
+static Val audio_buffer_js(audio::Buffer b) {
+    if (!audio::buffer_exists(b)) return Val::null();
     Val o = js::make_object();
-    put(o, "seek", native([bgm](Args&) { return Val::num(bgm ? audio::bgm_position() : 0); }));
-    put(o, "isPlaying", native([bgm](Args&) { return Val::boolean(bgm ? audio::bgm_playing() : !audio_manager::current_bgs().name.empty()); }));
-    put(o, "_gainNode", js::make_object());
+    put(o, "seek", native([b](Args&) { return Val::num(audio::buffer_position(b)); }));
+    put(o, "isPlaying", native([b](Args&) { return Val::boolean(audio::buffer_playing(b)); }));
+    Val gain_node = js::make_object();
+    put(gain_node, "gain", audio_gain_param(b));
+    put(o, "_gainNode", gain_node);
     return o;
 }
 
@@ -356,14 +373,9 @@ void bind_audio_manager() {
         AudioObj a = audio_manager::current_bgs();
         return a.valid && !a.name.empty() ? a.to_js() : Val::null();
     });
-    kl.getter("_bgmBuffer", [](js::JsObject&) {
-        AudioObj a = audio_manager::current_bgm();
-        return a.valid && !a.name.empty() ? audio_buffer_js(true) : Val::null();
-    });
-    kl.getter("_bgsBuffer", [](js::JsObject&) {
-        AudioObj a = audio_manager::current_bgs();
-        return a.valid && !a.name.empty() ? audio_buffer_js(false) : Val::null();
-    });
+    kl.getter("_bgmBuffer", [](js::JsObject&) { return audio_buffer_js(audio::Buffer::Bgm); });
+    kl.getter("_bgsBuffer", [](js::JsObject&) { return audio_buffer_js(audio::Buffer::Bgs); });
+    kl.getter("_meBuffer", [](js::JsObject&) { return audio_buffer_js(audio::Buffer::Me); });
     kl.getter("_dangerBgs", [](js::JsObject&) {
         AudioObj a = audio_manager::current_danger_bgs();
         return a.valid ? a.to_js() : Val::null();
