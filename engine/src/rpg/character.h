@@ -1,8 +1,10 @@
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "../core/bytes.h"
 #include "../core/value.h"
 #include "../js/bind.h"
 #include "state.h"
@@ -14,6 +16,12 @@ class GameCharacterBase;
 class GameCharacter;
 class GameEvent;
 class GameInterpreter;
+
+class SpritePass {
+public:
+    SpritePass();
+    ~SpritePass();
+};
 
 enum RouteCode {
     ROUTE_END = 0,
@@ -229,6 +237,8 @@ public:
     bool has_eventcon = false;
     bool eventcon_index_defined = false;
     TrembleInfo tremble;
+    mutable uint64_t sprite_pos_pass_ = 0;
+    mutable double sprite_pos_[3] = {};
     void start_tremble(double power, double speed, double stop_cycle);
     bool stop_tremble();
     void update_tremble();
@@ -247,7 +257,7 @@ public:
     void set_blend_mode(int b) { blend_mode_ = b; }
     bool is_normal_priority() const { return priority_type == 1; }
     void set_priority_type(int p) { priority_type = p; }
-    bool is_moving() const { return real_x != x_ || real_y != y_; }
+    bool is_moving() const { return !(bytes::same_bits(real_x, x_) && bytes::same_bits(real_y, y_)) && (real_x != x_ || real_y != y_); }
     bool is_jumping() const { return jump_count > 0; }
     double jump_height() const;
     virtual bool is_stopping() const { return !is_moving() && !is_jumping(); }
@@ -281,6 +291,7 @@ public:
     virtual double screen_x() const;
     virtual double screen_y() const;
     double screen_z() const;
+    void sprite_position(double& x, double& y, double& z) const;
     bool is_near_the_screen() const;
     virtual void update();
     void base_update();

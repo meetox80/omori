@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../core/bytes.h"
 #include "../core/image.h"
 #include "../platform/gfx.h"
 #include "../rpg/game.h"
@@ -113,8 +114,8 @@ void TiledTilemap::build_fast_rects() {
 
 TiledTilemap::TiledTilemap() {
     comparator = [](const g2d::DisplayPtr& a, const g2d::DisplayPtr& b) {
-        if (a->z != b->z) return a->z < b->z;
-        if (a->y != b->y) return a->y < b->y;
+        if (!bytes::same_bits(a->z, b->z) && a->z != b->z) return a->z < b->z;
+        if (!bytes::same_bits(a->y, b->y) && a->y != b->y) return a->y < b->y;
         if (a->priority != b->priority) return a->priority < b->priority;
         return a->sprite_id < b->sprite_id;
     };

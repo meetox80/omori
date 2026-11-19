@@ -200,10 +200,12 @@ void Horror::set_tv_speed(double value) {
     if (impl_->tv) impl_->tv_speed = value;
 }
 
-static js::Val* field(const js::Val* obj, const char* key) {
+static js::Val* field(const js::Val* obj, uint32_t key) {
     if (!obj || !obj->is_obj()) return nullptr;
-    return obj->o->find(js::atom(key));
+    return obj->o->find(key);
 }
+
+static js::Val* field(const js::Val* obj, const char* key) { return field(obj, js::atom(key)); }
 
 static double num_of(const js::Val* obj, const char* key) {
     js::Val* v = field(obj, key);
@@ -225,7 +227,10 @@ static bool take_update(js::Val* f) {
 void Horror::sync(g2d::Sprite& sprite, const js::Val* source, bool glitch_special) {
     impl_->special = glitch_special;
     if (!source || !source->truthy() || !source->is_obj()) return;
-    js::Val* nf = field(source, "noiseFilter");
+    static const uint32_t noise_key = js::atom("noiseFilter");
+    static const uint32_t glitch_key = js::atom("glitchFilter");
+    static const uint32_t tv_key = js::atom("tvFilter");
+    js::Val* nf = field(source, noise_key);
     if (nf && nf->truthy()) {
         if (!impl_->noise) create_noise(sprite);
         if (take_update(nf)) {
@@ -235,7 +240,7 @@ void Horror::sync(g2d::Sprite& sprite, const js::Val* source, bool glitch_specia
     } else if (impl_->noise) {
         remove_noise(sprite);
     }
-    js::Val* gf = field(source, "glitchFilter");
+    js::Val* gf = field(source, glitch_key);
     if (gf && gf->truthy()) {
         if (!impl_->glitch) create_glitch(sprite);
         if (take_update(gf)) {
@@ -252,7 +257,7 @@ void Horror::sync(g2d::Sprite& sprite, const js::Val* source, bool glitch_specia
     } else if (impl_->glitch) {
         remove_glitch(sprite);
     }
-    js::Val* tf = field(source, "tvFilter");
+    js::Val* tf = field(source, tv_key);
     if (tf && tf->truthy()) {
         if (!impl_->tv) create_tv(sprite);
         if (take_update(tf)) {

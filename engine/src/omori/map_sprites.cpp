@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../core/bytes.h"
 #include "../core/regex.h"
 #include "../rpg/character.h"
 #include "../rpg/data.h"
@@ -450,7 +451,8 @@ double SpriteCharacter::character_block_x() {
 double SpriteCharacter::character_block_y() {
     if (character_->has_custom_frame_y) return character_->custom_frame_y;
     if (is_big_character_) return 0;
-    return std::floor(character_->character_index() / 4.0) * 4;
+    int i = character_->character_index();
+    return (i >= 0 ? i / 4 : -((3 - i) / 4)) * 4;
 }
 
 double SpriteCharacter::character_pattern_x() {
@@ -516,11 +518,7 @@ void SpriteCharacter::create_half_body_sprites() {
     }
 }
 
-void SpriteCharacter::update_position() {
-    x = character_->screen_x();
-    y = character_->screen_y();
-    z = character_->screen_z();
-}
+void SpriteCharacter::update_position() { character_->sprite_position(x, y, z); }
 
 void SpriteCharacter::update_char_animation() {
     setup_animation();
@@ -530,7 +528,12 @@ void SpriteCharacter::update_char_animation() {
 }
 
 void SpriteCharacter::update_other() {
-    set_opacity(character_->opacity());
+    double o = character_->opacity();
+    if (!bytes::same_bits(o, opacity_in_) || !bytes::same_bits(alpha, opacity_out_)) {
+        set_opacity(o);
+        opacity_in_ = o;
+        opacity_out_ = alpha;
+    }
     blend_mode = character_->blend_mode();
     bush_depth_ = character_->bush_depth();
 }
@@ -784,9 +787,7 @@ void SpriteCharacterReflect::update_reflect() {
 }
 
 void SpriteCharacterReflect::update_position() {
-    x = character_->screen_x();
-    y = character_->screen_y();
-    z = character_->screen_z();
+    character_->sprite_position(x, y, z);
     if (character_->reflections.empty()) return;
     const auto& refl = rpg::game_map().reflections;
     int ri = character_->reflections[0];

@@ -469,6 +469,33 @@ double GameCharacterBase::screen_y() const {
     return std::round(v);
 }
 
+static uint64_t g_sprite_pass = 0;
+static int g_sprite_pass_depth = 0;
+
+SpritePass::SpritePass() {
+    if (g_sprite_pass_depth++ == 0) g_sprite_pass++;
+}
+
+SpritePass::~SpritePass() { g_sprite_pass_depth--; }
+
+void GameCharacterBase::sprite_position(double& x, double& y, double& z) const {
+    if (g_sprite_pass_depth > 0 && sprite_pos_pass_ == g_sprite_pass) {
+        x = sprite_pos_[0];
+        y = sprite_pos_[1];
+        z = sprite_pos_[2];
+        return;
+    }
+    x = screen_x();
+    y = screen_y();
+    z = screen_z();
+    if (g_sprite_pass_depth > 0) {
+        sprite_pos_[0] = x;
+        sprite_pos_[1] = y;
+        sprite_pos_[2] = z;
+        sprite_pos_pass_ = g_sprite_pass;
+    }
+}
+
 double GameCharacterBase::screen_z() const {
     if (priority_type == 0) return params().tiled_z_below;
     if (priority_type == 2) return params().tiled_z_above;

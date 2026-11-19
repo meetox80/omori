@@ -660,13 +660,12 @@ static void mix_voice(Voice& v, int32_t* acc, int frames, int kind_vol) {
         v.primed = true;
         v.frac = 0;
     }
+    int32_t gl = (int32_t)(((int64_t)kl * (v.gain >> 9)) >> 15);
+    int32_t gr = (int32_t)(((int64_t)kr * (v.gain >> 9)) >> 15);
     for (int i = 0; i < frames; i++) {
         int32_t t = (int32_t)(v.frac >> 2);
         int32_t l = v.prev_l + (((v.cur_l - v.prev_l) * t) >> 14);
         int32_t r = v.prev_r + (((v.cur_r - v.prev_r) * t) >> 14);
-        int32_t g = v.gain >> 9;
-        int32_t gl = (int32_t)(((int64_t)kl * g) >> 15);
-        int32_t gr = (int32_t)(((int64_t)kr * g) >> 15);
         acc[i * 2] += (int32_t)(((int64_t)l * gl) >> 15);
         acc[i * 2 + 1] += (int32_t)(((int64_t)r * gr) >> 15);
         if (v.gain_step != 0) {
@@ -679,6 +678,8 @@ static void mix_voice(Voice& v, int32_t* acc, int frames, int kind_vol) {
                     return;
                 }
             }
+            gl = (int32_t)(((int64_t)kl * (v.gain >> 9)) >> 15);
+            gr = (int32_t)(((int64_t)kr * (v.gain >> 9)) >> 15);
         }
         v.frac += v.step;
         while (v.frac >= 65536) {

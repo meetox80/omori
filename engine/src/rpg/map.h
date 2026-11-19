@@ -348,6 +348,9 @@ private:
     mutable const Value* tileset_ = nullptr;
     mutable const Value* tileset_flags_ = nullptr;
     mutable std::vector<int> slip_tags_;
+    bool slip_region_present_ = false;
+    mutable bool display_cache_valid_[2] = {false, false};
+    mutable double display_cache_[2][3] = {};
     void refresh_tileset_cache() const;
 };
 

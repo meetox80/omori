@@ -4,6 +4,8 @@
 #include <cmath>
 #include <deque>
 
+#include "../core/bytes.h"
+
 namespace g2d {
 
 static int g_sprite_counter = 0;
@@ -16,13 +18,13 @@ DisplayObject::~DisplayObject() {}
 
 Mat DisplayObject::local_matrix() const {
     Mat m;
-    if (rotation == 0 && skew_x == 0 && skew_y == 0) {
+    if (bytes::zero_bits(rotation) && bytes::zero_bits(skew_x) && bytes::zero_bits(skew_y)) {
         m.a = scale_x;
         m.b = 0;
         m.c = 0;
         m.d = scale_y;
-        m.tx = x - pivot_x * m.a;
-        m.ty = y - pivot_y * m.d;
+        m.tx = bytes::zero_bits(pivot_x) ? x : x - pivot_x * m.a;
+        m.ty = bytes::zero_bits(pivot_y) ? y : y - pivot_y * m.d;
         return m;
     }
     double cr = std::cos(rotation + skew_y), sr = std::sin(rotation + skew_y);
@@ -342,6 +344,7 @@ void Sprite::set_bitmap(BitmapPtr b) {
 
 void Sprite::set_frame(double fx, double fy, double fw, double fh) {
     refresh_frame_ = false;
+    if (bytes::same_bits(fx, frame_.x) && bytes::same_bits(fy, frame_.y) && bytes::same_bits(fw, frame_.width) && bytes::same_bits(fh, frame_.height)) return;
     if (fx != frame_.x || fy != frame_.y || fw != frame_.width || fh != frame_.height) {
         frame_ = Rect(fx, fy, fw, fh);
         tint_dirty_ = true;

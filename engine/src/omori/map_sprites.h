@@ -168,6 +168,7 @@ protected:
     bool has_image_ = false;
     bool is_big_character_ = false;
     double bush_depth_ = 0;
+    double opacity_in_ = 0, opacity_out_ = -1;
     std::shared_ptr<g2d::Sprite> upper_body_, lower_body_;
     std::shared_ptr<SpriteBalloon> balloon_sprite_;
     std::shared_ptr<SpriteEventCon> eventcon_sprite_;

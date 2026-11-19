@@ -379,6 +379,55 @@ Scope::~Scope() {
 
 namespace scene_manager {
 
+static double g_tick_cost = 0;
+static double g_render_cost = 0;
+static int g_tick_debt = 0;
+static int g_last_ticks = 1;
+static int g_overruns = 0;
+static int g_unclear = 0;
+static bool g_catch_up = false;
+static bool g_probing = false;
+
+static int paced_ticks(int raw) {
+    if (!profile::FIXED_REFRESH) return raw;
+    const double budget = 0.9 / 60.0;
+    bool one_fits = g_tick_cost + g_render_cost <= budget;
+    bool last_fit = g_last_ticks * g_tick_cost + g_render_cost <= budget;
+    if (g_probing) {
+        g_probing = false;
+        g_overruns = raw == 1 ? 0 : 16;
+        g_unclear = 0;
+    } else if (raw == 1) {
+        g_overruns = std::max(g_overruns - 1, 0);
+        g_unclear = 0;
+    } else if (last_fit) {
+        g_overruns = std::min(g_overruns + 1, 16);
+        g_unclear = 0;
+    } else {
+        g_unclear++;
+    }
+    if (g_overruns >= 8) g_catch_up = true;
+    if (g_overruns == 0) g_catch_up = false;
+    int ticks = 1;
+    if (!one_fits) {
+        ticks = raw;
+        g_tick_debt = 0;
+    } else if (g_catch_up && g_unclear >= 60) {
+        g_probing = true;
+        g_unclear = 0;
+        g_tick_debt = raw - 1;
+    } else if (g_catch_up) {
+        ticks = std::min(raw + g_tick_debt, 4);
+        g_tick_debt = 0;
+    } else {
+        g_tick_debt = std::min(g_tick_debt + raw, 8);
+        while (ticks < g_tick_debt && ticks < 4 && (ticks + 1) * g_tick_cost + g_render_cost <= budget) ticks++;
+        g_tick_debt -= ticks;
+    }
+    g_last_ticks = ticks;
+    return ticks;
+}
+
 static void render_scene() {
     loader::end();
     double tp = plat::time_seconds();
@@ -396,10 +445,9 @@ static void render_scene() {
     }
     ui::render_movie_overlay();
     ui::bottom::render();
-    if (plat::options().perf) {
-        double r = plat::time_seconds() - t0;
-        perf_add(g_perf.render_sum, g_perf.render_max, r);
-    }
+    double r = plat::time_seconds() - t0;
+    g_render_cost += (r - g_render_cost) * 0.1;
+    if (plat::options().perf) perf_add(g_perf.render_sum, g_perf.render_max, r);
     plat::frame_end();
 }
 
@@ -443,7 +491,7 @@ void run(SceneFactory first) {
             audio::on_resume();
         }
         record_fps();
-        int ticks = plat::pending_ticks();
+        int ticks = paced_ticks(plat::pending_ticks());
         double frame_start = plat::time_seconds();
         for (int i = 0; i < ticks && plat::running(); i++) {
             double u0 = plat::time_seconds();
@@ -492,8 +540,9 @@ void run(SceneFactory first) {
                 images::tick();
             }
             g_frames++;
+            double du = plat::time_seconds() - u0;
+            g_tick_cost += (du - g_tick_cost) * 0.1;
             if (plat::options().perf) {
-                double du = plat::time_seconds() - u0;
                 perf_add(g_perf.update_sum, g_perf.update_max, du);
                 if (du > 0.05) perf_spike(before, du);
             }

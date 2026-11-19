@@ -275,6 +275,7 @@ void SpritesetBase::create_screen_sprites() {
 }
 
 void SpritesetBase::update() {
+    rpg::SpritePass pass;
     horror.sync(*this, horror_filters_source(), false);
     g2d::Sprite::update();
     horror.update(*this);

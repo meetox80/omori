@@ -210,6 +210,7 @@ void GameMap::setup(int id) {
     setup_battleback();
     needs_refresh = false;
     levels.clear();
+    slip_region_present_ = false;
     reflections.clear();
     set_current_map_level(0);
     if (is_tiled_map()) setup_tiled();
@@ -308,8 +309,18 @@ bool GameMap::is_event_running() const { return interpreter->is_running() || is_
 double GameMap::tile_width() const { return dims_.tile_w; }
 double GameMap::tile_height() const { return dims_.tile_h; }
 
-double GameMap::display_x() const { return (display_x_ * tile_width()) / tile_width(); }
-double GameMap::display_y() const { return (display_y_ * tile_height()) / tile_height(); }
+static double cached_display(bool& valid, double (&c)[3], double v, double t) {
+    if (!valid || !bytes::same_bits(c[0], v) || !bytes::same_bits(c[1], t)) {
+        c[0] = v;
+        c[1] = t;
+        c[2] = (v * t) / t;
+        valid = true;
+    }
+    return c[2];
+}
+
+double GameMap::display_x() const { return cached_display(display_cache_valid_[0], display_cache_[0], display_x_, tile_width()); }
+double GameMap::display_y() const { return cached_display(display_cache_valid_[1], display_cache_[1], display_y_, tile_height()); }
 
 std::string GameMap::battleback1_name() const {
     std::string b = get_region_battleback_name(1);
@@ -959,6 +970,7 @@ void GameMap::restore_begin(int id) {
     }
     process_map_notetags();
     levels.clear();
+    slip_region_present_ = false;
     reflections.clear();
     if (is_tiled_map()) setup_tiled_levels();
     process_footstep_sound();
@@ -993,6 +1005,14 @@ void GameMap::setup_tiled_levels() {
         L.arrows.assign((size_t)size, 15);
         L.regions.assign((size_t)size, 0);
         L.change.assign((size_t)size, -1);
+    }
+    double sr = params().slip_region;
+    slip_region_present_ = sr == -1;
+    if (sr >= 1 && sr <= 255 && sr == std::floor(sr)) {
+        uint8_t want = (uint8_t)sr;
+        for (const MapLevel& L : levels) {
+            if (L.valid && std::find(L.regions.begin(), L.regions.end(), want) != L.regions.end()) slip_region_present_ = true;
+        }
     }
     const Value& rs = t["reflections"];
     for (size_t i = 0; i < rs.size(); i++) {
@@ -1159,8 +1179,10 @@ void GameMap::reset_all_event_locations() {
 }
 
 bool GameMap::is_slippery(double x, double y) const {
+    const Value& ts = tileset();
+    if (!slip_region_present_ && slip_tags_.empty() && is_tiled_map()) return false;
     if (party_in_battle()) return false;
-    if (is_valid(x, y) && tileset().is_obj()) {
+    if (is_valid(x, y) && ts.is_obj()) {
         double sr = params().slip_region;
         if (sr != 0 && region_id(x, y) == sr) return true;
         if (slip_tags_.empty()) return false;

@@ -24,6 +24,7 @@ constexpr bool BOTTOM_SCREEN = false;
 constexpr bool CANVAS_HEAP = false;
 constexpr bool GPU_TINT = false;
 constexpr bool BACKGROUND_DECODE = false;
+constexpr bool FIXED_REFRESH = false;
 constexpr int INFLATE_PACE_MS = 4;
 constexpr size_t HEAP_RESERVE = 16u << 20;
 constexpr int AUDIO_RATE = 48000;

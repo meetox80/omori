@@ -25,6 +25,19 @@ inline double le_double(const uint8_t* p) {
     return d;
 }
 
+inline bool same_bits(double a, double b) {
+    uint64_t x, y;
+    std::memcpy(&x, &a, sizeof x);
+    std::memcpy(&y, &b, sizeof y);
+    return x == y;
+}
+
+inline bool zero_bits(double v) {
+    uint64_t b;
+    std::memcpy(&b, &v, sizeof b);
+    return (b << 1) == 0;
+}
+
 inline void le16_to_host(int16_t* samples, size_t count) {
     if (!BIG_HOST) return;
     for (size_t i = 0; i < count; i++) {
