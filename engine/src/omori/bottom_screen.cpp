@@ -17,7 +17,9 @@
 #include "../rpg/params.h"
 #include "../rpg/party.h"
 #include "../rpg/scene.h"
+#include "bottom_battle.h"
 #include "bottom_dialogue.h"
+#include "bottom_shop.h"
 #include "menu_common.h"
 #include "ui_util.h"
 
@@ -26,7 +28,7 @@ namespace bottom {
 
 namespace {
 
-enum class Mode { Off, Hidden, Play };
+enum class Mode { Off, Hidden, Play, Battle, Shop };
 
 constexpr int TAB_COUNT = 4;
 constexpr double TAB_Y = 6;
@@ -234,6 +236,8 @@ Mode current_mode() {
         name == "Scene_Gameover")
         return Mode::Off;
     if (rpg::game_party().size() == 0) return Mode::Off;
+    if (name == "Scene_Battle") return Mode::Battle;
+    if (name == "Scene_OmoriItemShop") return Mode::Shop;
     return name == "Scene_Map" ? Mode::Play : Mode::Hidden;
 }
 
@@ -727,6 +731,8 @@ std::vector<double> signature() {
 void update_bottom() {
     Mode mode = current_mode();
     if (mode != g_mode) {
+        if (g_mode == Mode::Battle) battle::reset();
+        if (g_mode == Mode::Shop) shop::reset();
         g_mode = mode;
         g_dirty = true;
         if (mode == Mode::Off) {
@@ -735,16 +741,19 @@ void update_bottom() {
             g_down = false;
             g_press = Press();
             g_sig.clear();
-        } else if (mode == Mode::Hidden) {
+        } else if (mode == Mode::Hidden || mode == Mode::Battle || mode == Mode::Shop) {
+            if (mode != Mode::Hidden) g_ui.reset();
             g_targeting = false;
             g_down = false;
             g_press = Press();
             g_sig.clear();
-        } else if (g_ui) {
+        } else {
+            if (!g_ui) build();
             g_ui->fade = 0;
         }
     }
     bool talk = dialogue::update();
+    if (talk && g_mode == Mode::Shop && shop::counting()) talk = false;
     if (talk != g_talk) {
         g_talk = talk;
         g_dirty = true;
@@ -753,10 +762,19 @@ void update_bottom() {
         g_down = plat::touch(tx, ty);
         g_press = Press();
         g_sig.clear();
+        shop::hold_touch();
         if (!talk && g_ui) g_ui->fade = 0;
     }
     if (g_talk) {
         if (dialogue::changed()) g_dirty = true;
+        return;
+    }
+    if (g_mode == Mode::Battle) {
+        if (battle::update() && battle::changed()) g_dirty = true;
+        return;
+    }
+    if (g_mode == Mode::Shop) {
+        if (shop::update() && shop::changed()) g_dirty = true;
         return;
     }
     if (g_mode != Mode::Play) return;
@@ -776,7 +794,7 @@ void render_bottom() {
     g_dirty = false;
     gfx::Surface keep = gfx::current_target();
     gfx::set_target(gfx::Surface::Bottom);
-    if (g_talk || (g_ui && g_mode == Mode::Play)) {
+    if (g_talk || g_mode == Mode::Battle || g_mode == Mode::Shop || (g_ui && g_mode == Mode::Play)) {
         g2d::RenderState rs;
         rs.clip = true;
         rs.cx0 = (int)images::OFFSET_X;
@@ -785,6 +803,8 @@ void render_bottom() {
         rs.cy1 = (int)images::OFFSET_Y + (int)std::lround(480 * images::SCALE);
         gfx::set_scissor(rs.cx0, rs.cy0, rs.cx1 - rs.cx0, rs.cy1 - rs.cy0);
         if (g_talk) dialogue::render(rs);
+        else if (g_mode == Mode::Battle) battle::render(rs);
+        else if (g_mode == Mode::Shop) shop::render(rs);
         else g_ui->root->render(rs);
         gfx::reset_scissor();
     }

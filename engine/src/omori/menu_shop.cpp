@@ -474,6 +474,31 @@ public:
 
     void set_shop_keeper_face(double index) { shop_keepers_face_sprite_->set_frame(251, index * 28, 79, 28); }
 
+    void view(ShopView& v) {
+        WindowOmoriShopItemList& list = *item_list_window_;
+        v.name = shop_get("name").to_str();
+        v.unit = list.world_currency_unit();
+        v.gold = rpg::game_party().gold();
+        v.items = list.data();
+        v.prices.clear();
+        for (int i = 0; i < (int)v.items.size(); i++) v.prices.push_back(list.price(i));
+        v.index = list.index();
+        v.counting = total_window_->active && total_window_->is_open();
+        v.amount = total_window_->amount;
+        v.total = total_window_->total_price();
+    }
+
+    void tap(int index) {
+        WindowOmoriShopItemList& list = *item_list_window_;
+        if (!list.is_open_and_active() || rpg::game_message().is_busy() || index < 0 || index >= list.max_items()) return;
+        if (index != list.index()) {
+            play_cursor_se();
+            list.select(index);
+            return;
+        }
+        list.process_ok();
+    }
+
     bool wait_for_message() { return rpg::game_message().is_busy(); }
 
     void shop_pop_scene() {
@@ -628,6 +653,18 @@ void WindowItemShopMessage::draw_item(const rpg::ItemRef& item) {
     std::string owned = js_fmt("(%1: %2)", {data::js_string(plugin_data("itemShopMenu", "ownedText")), num_str(rpg::game_party().num_items(item))});
     w->c().draw_text(owned, 0, 0, w->c().width() - 10, 24, "right");
     drawing_item_text_ = false;
+}
+
+bool shop_view(ShopView& out) {
+    if (!rpg::game_objects_exist()) return false;
+    auto* scene = dynamic_cast<SceneOmoriItemShop*>(rpg::scene_manager::scene());
+    if (!scene || !rpg::scene_manager::is_current_scene_started()) return false;
+    scene->view(out);
+    return true;
+}
+
+void shop_tap(int index) {
+    if (auto* scene = dynamic_cast<SceneOmoriItemShop*>(rpg::scene_manager::scene())) scene->tap(index);
 }
 
 }

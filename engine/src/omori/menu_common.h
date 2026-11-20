@@ -109,6 +109,21 @@ rpg::SceneFactory omo_menu_equip_scene();
 rpg::SceneFactory omo_menu_options_scene();
 void snap_for_shop();
 
+struct ShopView {
+    std::string name;
+    std::string unit;
+    double gold = 0;
+    std::vector<rpg::ItemRef> items;
+    std::vector<double> prices;
+    int index = -1;
+    bool counting = false;
+    double amount = 0;
+    double total = 0;
+};
+
+bool shop_view(ShopView& out);
+void shop_tap(int index);
+
 class SceneBaseEX : public rpg::Scene {
 public:
     void update() override;
