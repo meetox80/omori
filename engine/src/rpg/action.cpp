@@ -5,6 +5,7 @@
 
 #include "../js/dataview.h"
 #include "../js/random.h"
+#include "../platform/platform.h"
 #include "audio_manager.h"
 #include "battle.h"
 #include "data.h"
@@ -383,6 +384,13 @@ double GameAction::item_cri(GameBattler* target) {
     return rate;
 }
 
+static std::string battler_tag(GameBattler* b) {
+    if (!b) return "none";
+    if (b->is_actor()) return "actor " + std::to_string(static_cast<GameActor*>(b)->actor_id());
+    if (b->is_enemy()) return "enemy " + std::to_string(static_cast<GameEnemy*>(b)->enemy_id());
+    return "battler";
+}
+
 void GameAction::apply_core(GameBattler* target) {
     target->result_.reset(new GameActionResult());
     subject()->result_.reset(new GameActionResult());
@@ -394,11 +402,18 @@ void GameAction::apply_core(GameBattler* target) {
     result.evaded = !result.missed && rng::next() < item_eva(target);
     result.physical = is_physical();
     result.drain = is_drain();
+    int damage_type = item_data()["damage"]["type"].as_int();
+    if (damage_type > 0 && party_in_battle()) {
+        plat::log("hit: %s uses %s %d on %s: used %d missed %d evaded %d", battler_tag(subject()).c_str(), item().is_skill() ? "skill" : "item", item().id,
+                  battler_tag(target).c_str(), (int)result.used, (int)result.missed, (int)result.evaded);
+    }
     if (result.is_hit()) {
-        if (item_data()["damage"]["type"].as_int() > 0) {
+        if (damage_type > 0) {
             result.critical = rng::next() < item_cri(target);
+            double hp_before = target->hp();
             double value = make_damage_value(target, result.critical);
             execute_damage(target, value);
+            if (party_in_battle()) plat::log("hit: hp %g -> %g, hp damage %g", hp_before, target->hp(), result.hp_damage);
         }
         const Value& effects = item_data()["effects"];
         for (size_t i = 0; i < effects.size(); i++) apply_item_effect(target, effects[i]);
@@ -457,23 +472,34 @@ void GameAction::apply(GameBattler* target) {
 }
 
 double GameAction::make_damage_value(GameBattler* target, bool critical) {
-    double base = eval_damage_formula(target);
-    double value = base;
-    base *= calc_element_rate(target);
+    double formula = eval_damage_formula(target);
+    double element = calc_element_rate(target);
+    double base = formula * element;
     critical = modify_critical(critical, base, target);
     target->result().critical = critical;
-    value = base;
+    double value = base;
     if (base > 0) value = apply_damage_rate(value);
     if (base < 0) value = apply_heal_rate(value, target);
     if (critical) value = apply_critical_rate(value, base, target);
+    double rated = value;
     if (is_physical()) value *= target->pdr();
     if (is_magical()) value *= target->mdr();
     if (base > 0) value += game_system().flat_damage;
     if (base < 0) value -= game_system().flat_heal;
     if (critical) value = apply_flat_critical(value, base, target);
+    double defended = value;
     value = apply_variance(value, item_data()["damage"]["variance"].num());
+    double varied = value;
     value = apply_guard(value, target);
+    double guarded = value;
     value = apply_minimum_damage(value, base, target);
+    if (party_in_battle()) {
+        GameSystem& sys = game_system();
+        plat::log("damage: formula %g, element rate %g, critical %d, after rates %g (damage rate %g), after defense %g, after variance %g, "
+                  "after guard %g, after cap %g (capped %d, max %g, act seq cap %d %g)",
+                  formula, element, (int)critical, rated, sys.damage_rate, defended, varied, guarded, value, (int)subject()->is_damage_capped(),
+                  subject()->maximum_damage(), (int)sys.has_act_seq_damage_cap, sys.act_seq_damage_cap);
+    }
     return std::round(value);
 }
 
@@ -534,9 +560,13 @@ double GameAction::apply_guard(double damage, GameBattler* target) const {
 }
 
 void GameAction::execute_damage(GameBattler* target, double value) {
+    double made = value;
     value = on_pre_damage_state_effects(target, value);
+    double confirmed = value;
     value = on_react_state_effects(target, value);
+    double reacted = value;
     value = apply_pre_damage_eval(target, value);
+    if (party_in_battle()) plat::log("damage: made %g, after attacker states %g, after target states %g, after pre-damage eval %g", made, confirmed, reacted, value);
     GameActionResult& result = target->result();
     if (value == 0) result.critical = false;
     if (is_hp_effect()) execute_hp_damage(target, value);

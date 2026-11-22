@@ -609,6 +609,14 @@ void set_targets(const std::vector<GameBattler*>& arr) {
     }
 }
 
+static void log_action_start(GameBattler* sub, const std::vector<GameBattler*>& ts) {
+    State& s = g_state;
+    const Value& it = s.action->item_data();
+    plat::log("action: %s %s %d, scope %d, %d targets, steps setup %d whole %d target %d follow %d finish %d", sub->is_actor() ? "actor" : "enemy",
+              s.action->item().is_skill() ? "skill" : "item", s.action->item().id, it["scope"].as_int(), (int)ts.size(), (int)it["setupActions"].size(),
+              (int)it["wholeActions"].size(), (int)it["targetActions"].size(), (int)it["followActions"].size(), (int)it["finishActions"].size());
+}
+
 void start_action() {
     State& s = g_state;
     if (subject()) subject()->on_action_start_state_effects();
@@ -627,6 +635,7 @@ void start_action() {
     set_targets(ts);
     s.all_targets = refs_of(ts);
     s.individual_targets = refs_of(ts);
+    log_action_start(sub, ts);
     s.phase = "phaseChange";
     s.phase_steps = {"setup", "whole", "target", "follow", "finish"};
     s.return_phase.clear();
@@ -683,9 +692,15 @@ void invoke_action(GameBattler* sub, GameBattler* target) {
     State& s = g_state;
     bool opt = yanfly_param("BECOptSpeed").truthy();
     if (!opt && s.log) s.log->push("pushBaseLine");
-    if (rng::next() < s.action->item_mrf(target)) invoke_magic_reflection(sub, target);
-    else if (rng::next() < s.action->item_cnt(target)) invoke_counter_attack(sub, target);
-    else invoke_normal_action(sub, target);
+    if (rng::next() < s.action->item_mrf(target)) {
+        plat::log("action: reflected");
+        invoke_magic_reflection(sub, target);
+    } else if (rng::next() < s.action->item_cnt(target)) {
+        plat::log("action: countered");
+        invoke_counter_attack(sub, target);
+    } else {
+        invoke_normal_action(sub, target);
+    }
     if (sub) sub->set_last_target(target);
     if (!opt && s.log) s.log->push("popBaseLine");
 }
@@ -1622,6 +1637,7 @@ static bool action_action_animation(const std::vector<std::string>& args) {
 static bool action_action_effect(const std::vector<std::string>& args) {
     State& s = g_state;
     std::vector<GameBattler*> ts = !arg(args, 0).empty() ? make_action_targets(args[0]) : resolve(s.targets);
+    plat::log("action: effect on %d targets (%s)", (int)ts.size(), arg(args, 0).empty() ? "current" : args[0].c_str());
     for (GameBattler* t : ts) {
         if (!t) continue;
         bool already = t->is_dead();
@@ -1636,6 +1652,7 @@ static bool action_immortal(const std::vector<std::string>& args) {
     JsEval e{js::Val()};
     bool ok = false;
     bool value = eval_string(to_lower(args.size() > 1 ? args[1] : "undefined"), e, "IMMORTAL", &ok).truthy() && ok;
+    plat::log("action: immortal %d on %d targets", (int)value, (int)ts.size());
     for (GameBattler* t : ts) {
         if (!t) continue;
         if (value) t->add_immortal();
@@ -2509,6 +2526,7 @@ static void action_perform_counter_phase(const std::shared_ptr<GameAction>& acti
     set_targets(ts);
     s.all_targets = refs_of(ts);
     s.individual_targets = refs_of(ts);
+    log_action_start(sub, ts);
     s.phase = "phaseChange";
     s.phase_steps = {"setup", "whole", "target", "follow", "finish"};
     s.return_phase.clear();
