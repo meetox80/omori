@@ -16,6 +16,7 @@
 #include "fx.h"
 #include "menu_common.h"
 #include "menu_options.h"
+#include "profile.h"
 #include "scenes.h"
 #include "ui_util.h"
 #include "window_selectable.h"
@@ -360,9 +361,8 @@ private:
     }
 
     void create_version_text() {
-        std::vector<std::string> lines = {"V1.0.8"};
-        if (*OMORI_COMMIT) lines.push_back(std::string("v") + OMORI_COMMIT);
-        lines.push_back("ported by kotwicha");
+        if constexpr (profile::BOTTOM_SCREEN) return;
+        std::vector<std::string> lines = version_lines();
         double padding = 4;
         double line_height = 20;
         game_version_ = std::make_shared<g2d::Sprite>(g2d::Bitmap::create(240, (int)std::ceil(padding * 2 + 12 + line_height * lines.size())));
@@ -824,6 +824,13 @@ rpg::SceneFactory title_factory(bool prepared, int command_index) {
                              }};
 }
 
+}
+
+std::vector<std::string> version_lines() {
+    std::vector<std::string> lines = {"V1.0.8"};
+    if (*OMORI_COMMIT) lines.push_back(std::string("v") + OMORI_COMMIT);
+    lines.push_back("ported by kotwicha");
+    return lines;
 }
 
 rpg::SceneFactory title_scene() { return title_factory(false, 0); }

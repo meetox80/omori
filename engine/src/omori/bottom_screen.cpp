@@ -21,6 +21,7 @@
 #include "bottom_dialogue.h"
 #include "bottom_shop.h"
 #include "menu_common.h"
+#include "scenes.h"
 #include "ui_util.h"
 
 namespace ui {
@@ -28,7 +29,7 @@ namespace bottom {
 
 namespace {
 
-enum class Mode { Off, Hidden, Play, Battle, Shop };
+enum class Mode { Off, Title, Hidden, Play, Battle, Shop };
 
 constexpr int TAB_COUNT = 4;
 constexpr double TAB_Y = 6;
@@ -47,6 +48,8 @@ constexpr double POINTER_RISE = 170;
 constexpr double BACKDROP_EDGE = 32;
 constexpr double BACKDROP_H = POINTER_RISE + BACKDROP_EDGE + 12 + CARD_H + 8;
 constexpr double DRAG_SLOP = 10;
+constexpr int VERSION_SIZE = 40;
+constexpr double VERSION_LINE = 52;
 
 const char* const CATEGORIES[3] = {"consumables", "toys", "important"};
 
@@ -227,11 +230,26 @@ bool g_talk = false;
 Press g_press;
 std::vector<double> g_sig;
 
+std::shared_ptr<g2d::Sprite> g_version;
+
+void build_version() {
+    std::vector<std::string> lines = version_lines();
+    g_version = std::make_shared<g2d::Sprite>(g2d::Bitmap::create(640, 480));
+    g2d::Bitmap& b = *g_version->bitmap();
+    b.font_face = yparam_str("DefaultFont");
+    b.font_size = VERSION_SIZE;
+    b.text_color = "#ffffff";
+    b.outline_width = 0;
+    double top = (480 - VERSION_LINE * (double)lines.size()) / 2;
+    for (size_t i = 0; i < lines.size(); i++) b.draw_text(lines[i], 0, top + VERSION_LINE * (double)i, 640, VERSION_LINE, "center");
+}
+
 Mode current_mode() {
-    if (!rpg::game_objects_exist()) return Mode::Off;
     rpg::Scene* s = rpg::scene_manager::scene();
     if (!s || rpg::scene_manager::is_scene_changing() || !rpg::scene_manager::is_current_scene_started()) return g_mode;
     std::string name = s->name();
+    if (name == "Scene_OmoriTitleScreen") return Mode::Title;
+    if (!rpg::game_objects_exist()) return Mode::Off;
     if (name == "Scene_Boot" || name == "Scene_SplashScreens" || name == "Scene_OmoriTitleScreen" || name == "Scene_OmoriFile" ||
         name == "Scene_Gameover")
         return Mode::Off;
@@ -735,7 +753,12 @@ void update_bottom() {
         if (g_mode == Mode::Shop) shop::reset();
         g_mode = mode;
         g_dirty = true;
-        if (mode == Mode::Off) {
+        if (mode == Mode::Title) {
+            if (!g_version) build_version();
+        } else {
+            g_version.reset();
+        }
+        if (mode == Mode::Off || mode == Mode::Title) {
             g_ui.reset();
             g_targeting = false;
             g_down = false;
@@ -769,6 +792,7 @@ void update_bottom() {
         if (dialogue::changed()) g_dirty = true;
         return;
     }
+    if (g_mode == Mode::Title) return;
     if (g_mode == Mode::Battle) {
         if (battle::update() && battle::changed()) g_dirty = true;
         return;
@@ -794,7 +818,7 @@ void render_bottom() {
     g_dirty = false;
     gfx::Surface keep = gfx::current_target();
     gfx::set_target(gfx::Surface::Bottom);
-    if (g_talk || g_mode == Mode::Battle || g_mode == Mode::Shop || (g_ui && g_mode == Mode::Play)) {
+    if (g_talk || g_mode == Mode::Title || g_mode == Mode::Battle || g_mode == Mode::Shop || (g_ui && g_mode == Mode::Play)) {
         g2d::RenderState rs;
         rs.clip = true;
         rs.cx0 = (int)images::OFFSET_X;
@@ -803,6 +827,7 @@ void render_bottom() {
         rs.cy1 = (int)images::OFFSET_Y + (int)std::lround(480 * images::SCALE);
         gfx::set_scissor(rs.cx0, rs.cy0, rs.cx1 - rs.cx0, rs.cy1 - rs.cy0);
         if (g_talk) dialogue::render(rs);
+        else if (g_mode == Mode::Title) g_version->render(rs);
         else if (g_mode == Mode::Battle) battle::render(rs);
         else if (g_mode == Mode::Shop) shop::render(rs);
         else g_ui->root->render(rs);

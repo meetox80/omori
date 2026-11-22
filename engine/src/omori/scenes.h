@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "../core/value.h"
 #include "../rpg/scene.h"
@@ -15,6 +16,7 @@ rpg::SceneFactory boot_scene();
 rpg::SceneFactory splash_scene();
 rpg::SceneFactory title_scene();
 rpg::SceneFactory title_scene_prepared(int command_index);
+std::vector<std::string> version_lines();
 rpg::SceneFactory map_scene();
 rpg::SceneFactory battle_scene();
 rpg::SceneFactory gameover_scene();
