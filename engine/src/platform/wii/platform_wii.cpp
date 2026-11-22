@@ -186,6 +186,11 @@ static void write_shot() {
 
 static bool scripted() { return g_opt.max_frames > 0 || !g_opt.input_script.empty() || !g_opt.shot_frames.empty(); }
 
+bool touch(int& x, int& y) {
+    (void)x, (void)y;
+    return false;
+}
+
 int pending_ticks() {
     u64 now = time_us();
     u64 tick = now * 60 / 1000000;

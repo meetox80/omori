@@ -218,6 +218,11 @@ static unsigned g_last_vcount = 0;
 
 static bool scripted() { return g_opt.max_frames > 0 || !g_opt.input_script.empty() || !g_opt.shot_frames.empty(); }
 
+bool touch(int& x, int& y) {
+    (void)x, (void)y;
+    return false;
+}
+
 int pending_ticks() {
     unsigned now = sceDisplayGetVcount();
     unsigned last = g_last_vcount;

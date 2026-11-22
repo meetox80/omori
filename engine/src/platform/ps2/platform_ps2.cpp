@@ -407,6 +407,11 @@ static void write_shot() {
 
 static bool scripted() { return g_opt.max_frames > 0 || !g_opt.input_script.empty() || !g_opt.shot_frames.empty(); }
 
+bool touch(int& x, int& y) {
+    (void)x, (void)y;
+    return false;
+}
+
 int pending_ticks() {
     uint32_t now = ps2::vsync_count();
     uint32_t dv = now - g_last_vsync;
