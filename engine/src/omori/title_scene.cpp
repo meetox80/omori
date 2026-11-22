@@ -827,7 +827,9 @@ rpg::SceneFactory title_factory(bool prepared, int command_index) {
 }
 
 std::vector<std::string> version_lines() {
-    std::vector<std::string> lines = {"V1.0.8"};
+    std::vector<std::string> lines;
+    std::string version = data::root()["version"].string();
+    if (!version.empty() && version != "unknown") lines.push_back("V" + version);
     if (*OMORI_COMMIT) lines.push_back(std::string("v") + OMORI_COMMIT);
     lines.push_back("ported by kotwicha");
     return lines;
