@@ -517,7 +517,15 @@ double GameAction::eval_damage_formula(GameBattler* target) {
         if (!e.run(ast, "DAMAGE FORMULA ERROR")) return 0;
         value = std::max(e.get("value").to_num(), 0.0) * sign;
     } else {
-        if (!ast) return 0;
+        if (!ast) {
+            if (party_in_battle()) {
+                const Value& f = dmg["formula"];
+                if (f.is_num()) plat::log("damage: formula not compiled, number %g", f.num());
+                else if (f.is_str()) plat::log("damage: formula not compiled, text \"%s\"", f.string().c_str());
+                else plat::log("damage: formula missing");
+            }
+            return 0;
+        }
         if (!e.run(ast, "DAMAGE FORMULA ERROR")) return 0;
         double r = e.completion().to_num();
         value = (std::isnan(r) ? NAN : std::max(r, 0.0)) * sign;

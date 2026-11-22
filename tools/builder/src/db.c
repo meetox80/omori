@@ -303,7 +303,13 @@ static void process_objects(Node* arr, const char* kind) {
         char* where = str_fmt("%s%d", kind, (int)node_numv(node_get(o, "id"), (double)i));
         compile_note_blocks(o, where);
         Node* dmg = node_get(o, "damage");
-        const char* formula = dmg ? node_strv(node_get(dmg, "formula")) : NULL;
+        Node* fn = dmg ? node_get(dmg, "formula") : NULL;
+        const char* formula = node_strv(fn);
+        char num[32];
+        if (fn && fn->type == N_NUM) {
+            snprintf(num, sizeof num, "%.17g", fn->num);
+            formula = num;
+        }
         if (formula && *formula) {
             Node* ast = script_compile(formula, where, 0, 0);
             if (ast) node_set(dmg, "_ast", ast);
