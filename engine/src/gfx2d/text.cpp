@@ -196,6 +196,24 @@ static void make_room(size_t need) {
     }
 }
 
+static uint64_t g_load_window = 0;
+static int g_load_count = 0;
+static uint64_t g_load_us = 0;
+
+static void note_load(uint64_t start) {
+    uint64_t now = plat::time_us();
+    if (!g_load_window || now - g_load_window >= 1000000) {
+        if (g_load_count >= 8)
+            plat::log("font: %d atlas pages loaded in %.1f s, %u ms loading, budget %u KB", g_load_count, (now - g_load_window) / 1e6, (unsigned)(g_load_us / 1000),
+                      (unsigned)(g_atlas_budget / 1024));
+        g_load_window = now;
+        g_load_count = 0;
+        g_load_us = 0;
+    }
+    g_load_count++;
+    g_load_us += now - start;
+}
+
 struct AtlasLoad {
     FontFace* face = nullptr;
     size_t page = 0;
@@ -297,6 +315,7 @@ bool FontFace::load_page(size_t p) {
     FontPage& pg = pages[p];
     if (pg.failed) return false;
     std::vector<uint16_t> loaded;
+    uint64_t start = plat::time_us();
     try {
         if (!take_prefetched(this, p, loaded) && !read_page(base + ".tex", legacy, atlas_w, pg, loaded)) {
             plat::log("missing font atlas page %s %d", base.c_str(), (int)p);
@@ -307,6 +326,7 @@ bool FontFace::load_page(size_t p) {
         plat::log("font atlas %s skipped: out of memory", base.c_str());
         return false;
     }
+    note_load(start);
     size_t need = loaded.size() * sizeof(uint16_t);
     make_room(need);
     pg.px = std::move(loaded);
