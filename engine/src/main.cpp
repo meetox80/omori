@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
     images::set_budget(std::clamp<size_t>(plat::heap_limit() > (22u << 20) ? plat::heap_limit() - (22u << 20) : 0, 2u << 20, 8u << 20));
 #elif defined(__3DS__)
     images::set_budget(plat::heap_limit() > (96u << 20) ? (32u << 20) : (16u << 20));
+    if (plat::heap_limit() > (96u << 20)) g2d::set_font_atlas_budget(8u << 20);
 #else
     images::set_budget(32u << 20);
 #endif
