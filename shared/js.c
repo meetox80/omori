@@ -259,6 +259,25 @@ static int regex_allowed(P* p) {
     return 1;
 }
 
+static size_t unicode_space(const unsigned char* s, size_t n, int* line) {
+    if (n >= 2 && s[0] == 0xC2 && s[1] == 0xA0) return 2;
+    if (n < 3) return 0;
+    if (s[0] == 0xE1 && s[1] == 0x9A && s[2] == 0x80) return 3;
+    if (s[0] == 0xE3 && s[1] == 0x80 && s[2] == 0x80) return 3;
+    if (s[0] == 0xE2 && s[1] == 0x80 && (s[2] <= 0x8A || s[2] == 0xAF)) return 3;
+    if (s[0] == 0xE2 && s[1] == 0x81 && s[2] == 0x9F) return 3;
+    if (s[0] == 0xE2 && s[1] == 0x80 && (s[2] == 0xA8 || s[2] == 0xA9)) {
+        *line = 1;
+        return 3;
+    }
+    return 0;
+}
+
+static int name_char_at(const char* s, size_t j, size_t end) {
+    int line = 0;
+    return is_name_char((unsigned char)s[j]) && !unicode_space((const unsigned char*)s + j, end - j, &line);
+}
+
 static void tokenize_range(P* p, size_t i, size_t end, int stop_brace) {
     const char* s = p->src;
     int nl = 0;
@@ -276,6 +295,13 @@ static void tokenize_range(P* p, size_t i, size_t end, int stop_brace) {
         }
         if (c == 0xEF && i + 2 < end && (unsigned char)s[i + 1] == 0xBB && (unsigned char)s[i + 2] == 0xBF) {
             i += 3;
+            continue;
+        }
+        int line = 0;
+        size_t uw = unicode_space((const unsigned char*)s + i, end - i, &line);
+        if (uw) {
+            if (line) nl = 1;
+            i += uw;
             continue;
         }
         if (c == '/' && i + 1 < end && s[i + 1] == '/') {
@@ -300,7 +326,7 @@ static void tokenize_range(P* p, size_t i, size_t end, int stop_brace) {
                 return;
             }
             size_t k = j + 1;
-            while (k < end && is_name_char((unsigned char)s[k])) k++;
+            while (k < end && name_char_at(s, k, end)) k++;
             Tok* t = add_tok(p, T_REGEX, i, nl);
             t->text = xstrndup(s + i + 1, j - i - 1);
             t->len = j - i - 1;
@@ -352,7 +378,7 @@ static void tokenize_range(P* p, size_t i, size_t end, int stop_brace) {
                 v = strtod(t, NULL);
                 free(t);
             }
-            if (j < end && is_name_start((unsigned char)s[j])) {
+            if (j < end && is_name_start((unsigned char)s[j]) && name_char_at(s, j, end)) {
                 fail_at(p, j, "bad number");
                 return;
             }
@@ -403,7 +429,7 @@ static void tokenize_range(P* p, size_t i, size_t end, int stop_brace) {
         }
         if (is_name_start(c)) {
             size_t j = i + 1;
-            while (j < end && is_name_char((unsigned char)s[j])) j++;
+            while (j < end && name_char_at(s, j, end)) j++;
             Tok* t = add_tok(p, T_NAME, i, nl);
             t->text = xstrndup(s + i, j - i);
             t->len = j - i;
