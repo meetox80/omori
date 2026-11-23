@@ -21,11 +21,9 @@ extern const size_t embedded_banner_template_size;
 #define LZ_MAX 0x10110u
 #define LZ_HASH_BITS 15
 #define LZ_CHAIN 128
-#define SLOT_SIZE 20u
-#define CGFX_LIMIT 0x80000u
-
-static uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | p[1] << 8); }
-static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+#define CGFX_HEADER 0x1580u
+#define BANNER_W 256
+#define BANNER_H 128
 
 static void le16(uint8_t* p, uint16_t v) {
     p[0] = (uint8_t)v;
@@ -105,35 +103,24 @@ int lz11_compress(const uint8_t* in, size_t len, Buf* out) {
     return 1;
 }
 
+static int dither4(int c, int t) {
+    int v = (c * 15 * 16 + t * 255) / (255 * 16);
+    return v > 15 ? 15 : v;
+}
+
 static void put_texture(uint8_t* dst, const Image* img) {
+    static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     int w = img->w, h = img->h;
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            const uint8_t* p = img->px + ((size_t)(h - 1 - y) * w + x) * 4;
-            uint16_t v = (uint16_t)(((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
+            const uint8_t* p = img->px + ((size_t)y * w + x) * 4;
+            int t = bayer[y & 3][x & 3];
+            uint16_t v = (uint16_t)(dither4(p[0], t) << 12 | dither4(p[1], t) << 8 | dither4(p[2], t) << 4 | 0xF);
             int m = 0;
             for (int i = 0; i < 3; i++) m |= ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1);
             le16(dst + (((size_t)(y >> 3) * (size_t)(w >> 3) + (size_t)(x >> 3)) * 64 + (size_t)m) * 2, v);
         }
     }
-}
-
-static int fill_slots(Game* g, Node* atlas, const uint8_t* table, uint32_t count, uint8_t* cgfx, size_t len) {
-    for (uint32_t i = 0; i < count; i++) {
-        const uint8_t* s = table + i * SLOT_SIZE;
-        uint32_t at = rd32(s);
-        int tw = rd16(s + 4), th = rd16(s + 6), x0 = rd16(s + 8), y0 = rd16(s + 10), x1 = rd16(s + 12), y1 = rd16(s + 14);
-        if (tw % 8 || th % 8 || x1 - x0 > tw || y1 - y0 > th || x1 > 256 || y1 > 128 || at + (size_t)tw * th * 2 > len) return 0;
-        Image* frame = assets_title_frame(g, atlas, s[16], s[17], 256, 128);
-        if (!frame) return 0;
-        Image* tex = img_new(tw, th);
-        memset(tex->px, 255, (size_t)tw * th * 4);
-        for (int y = y0; y < y1; y++) memcpy(tex->px + (size_t)(y - y0) * tw * 4, frame->px + ((size_t)y * 256 + x0) * 4, (size_t)(x1 - x0) * 4);
-        put_texture(cgfx + at, tex);
-        img_free(tex);
-        img_free(frame);
-    }
-    return 1;
 }
 
 static void build_cwav(const float* pcm, size_t frames, Buf* out) {
@@ -190,22 +177,20 @@ static void build_cwav(const float* pcm, size_t frames, Buf* out) {
 }
 
 int banner_build(Game* g, Node* atlas, Buf* out) {
-    const uint8_t* t = embedded_banner_template;
-    size_t tlen = embedded_banner_template_size;
-    uint32_t count = tlen >= 8 && memcmp(t, "OBNR", 4) == 0 ? rd32(t + 4) : 0;
-    size_t skip = 8 + (size_t)count * SLOT_SIZE;
-    if (!count || skip >= tlen || tlen - skip > CGFX_LIMIT) {
+    if (embedded_banner_template_size != CGFX_HEADER) {
         log_msg("  warning: this builder has no HOME Menu banner model, so there is no omori.cia");
         return 0;
     }
-    size_t len = tlen - skip;
-    uint8_t* cgfx = xmalloc(len);
-    memcpy(cgfx, t + skip, len);
-    if (!fill_slots(g, atlas, t + 8, count, cgfx, len)) {
+    Image* frame = assets_title_frame(g, atlas, BANNER_W, BANNER_H);
+    if (!frame) {
         log_msg("  warning: the title screen art is missing, so there is no omori.cia");
-        free(cgfx);
         return 0;
     }
+    size_t len = CGFX_HEADER + (size_t)BANNER_W * BANNER_H * 2;
+    uint8_t* cgfx = xmalloc(len);
+    memcpy(cgfx, embedded_banner_template, CGFX_HEADER);
+    put_texture(cgfx + CGFX_HEADER, frame);
+    img_free(frame);
     Buf lz = {0};
     lz11_compress(cgfx, len, &lz);
     free(cgfx);

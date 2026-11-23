@@ -6,6 +6,7 @@
 
 #include "crypto.h"
 #include "ctr_certs.h"
+#include "ctr_logo.h"
 
 #define MEDIA 0x200u
 #define PAGE 0x1000u
@@ -159,6 +160,7 @@ static int build_ncch(const CiaApp* app, Buf* out) {
     exefs_add(&exefs, 0, ".code", code.data, code.len);
     exefs_add(&exefs, 1, "banner", app->banner, app->banner_len);
     exefs_add(&exefs, 2, "icon", app->smdh, app->smdh_len);
+    exefs_add(&exefs, 3, "logo", ctr_homebrew_logo, CTR_LOGO_SIZE);
     buf_free(&code);
 
     uint8_t hdr[0x200];
