@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "assets.h"
+#include "banner.h"
+#include "cia.h"
 #include "pack.h"
 #include "ps2disc.h"
 #include "ps3pkg.h"
@@ -24,6 +26,8 @@ static Blob embedded(TargetId id) {
 }
 
 static Blob embedded_sfo(void) { return (Blob){NULL, 0}; }
+
+static Blob embedded_forwarder(void) { return (Blob){NULL, 0}; }
 #else
 extern const unsigned char embedded_psp_eboot[];
 extern const size_t embedded_psp_eboot_size;
@@ -33,6 +37,8 @@ extern const unsigned char embedded_vita_sfo[];
 extern const size_t embedded_vita_sfo_size;
 extern const unsigned char embedded_3ds_engine[];
 extern const size_t embedded_3ds_engine_size;
+extern const unsigned char embedded_3ds_forwarder[];
+extern const size_t embedded_3ds_forwarder_size;
 extern const unsigned char embedded_wii_dol[];
 extern const size_t embedded_wii_dol_size;
 extern const unsigned char embedded_wiiu_rpx[];
@@ -59,7 +65,11 @@ static Blob embedded(TargetId id) {
 }
 
 static Blob embedded_sfo(void) { return (Blob){embedded_vita_sfo, embedded_vita_sfo_size}; }
+
+static Blob embedded_forwarder(void) { return (Blob){embedded_3ds_forwarder, embedded_3ds_forwarder_size}; }
 #endif
+
+static const uint64_t CIA_TITLE_ID = 0x0004000007A0E100ull;
 
 static const char PS3_CONTENT_ID[] = "UP0001-OMRI00001_00-0000000000000000";
 static const char PS3_LICENSE[] = "An unofficial fan port of OMORI with an engine written from scratch, built from your own copy of the game. OMORI is (c) OMOCAT, "
@@ -85,6 +95,8 @@ struct Package {
     Buf pic1;
     Exe3dsx x3ds;
     Buf smdh;
+    Buf forwarder;
+    Buf banner;
     Buf eboot;
     Buf sfo;
     Vpk vpk;
@@ -155,6 +167,43 @@ static int load_vita(const char* path, Buf* eboot, Buf* sfo) {
     }
     buf_put(sfo, b.data, b.size);
     return 1;
+}
+
+static void load_forwarder(const char* engine_path, Buf* out) {
+    if (engine_path) {
+        char* dir = path_parent(engine_path);
+        char* side = path_join(dir, "omori-forwarder.elf");
+        int own = file_read(side, out);
+        free(side);
+        free(dir);
+        if (own) return;
+    }
+    Blob b = embedded_forwarder();
+    if (b.size) buf_put(out, b.data, b.size);
+    else log_msg("  warning: the HOME Menu forwarder is missing (put omori-forwarder.elf next to the --engine file), so there is no omori.cia");
+}
+
+static char* cia_path(const char* data_path) {
+    char* dir = path_parent(data_path);
+    char* path = path_join(dir, "omori.cia");
+    free(dir);
+    return path;
+}
+
+static int write_cia(Package* p) {
+    if (!p->forwarder.len || !p->banner.len || !p->smdh.len) return 1;
+    CiaApp app = {p->forwarder.data, p->forwarder.len, p->smdh.data, p->smdh.len, p->banner.data, p->banner.len, CIA_TITLE_ID, "OMORI", "CTR-H-OMRI"};
+    Buf cia = {0};
+    char* path = cia_path(p->data_path);
+    int ok = cia_build(&app, &cia);
+    if (ok && !file_write(path, cia.data, cia.len)) {
+        fprintf(stderr, "error: cannot write %s\n", path);
+        ok = 0;
+    }
+    if (ok) p->summary = str_fmt("%s and %s", p->data_path, path);
+    buf_free(&cia);
+    free(path);
+    return ok;
 }
 
 static void ps3_sfo(Buf* out) {
@@ -245,6 +294,8 @@ Package* package_open(const char* out, const char* engine_path, Game* g, Node* a
         case TARGET_3DS:
             ok = ok && load_3ds(engine_path, &p->x3ds);
             if (ok) assets_build_smdh(g, atlas, &p->smdh);
+            if (ok) load_forwarder(engine_path, &p->forwarder);
+            if (ok && p->forwarder.len && p->smdh.len) banner_build(g, atlas, &p->banner);
             break;
         case TARGET_VITA:
             ok = ok && load_vita(engine_path, &p->eboot, &p->sfo);
@@ -381,6 +432,7 @@ int package_finish(Package* p) {
         free(elf);
         return ok;
     }
+    if (p->id == TARGET_3DS) return write_cia(p);
     if (p->id == TARGET_PS3) {
         int ok = ps3pkg_finish(&p->ps3, p->data_path, p->pack_len, cpu_count());
         if (!ok) fprintf(stderr, "error: cannot finish %s\n", p->data_path);
@@ -403,6 +455,8 @@ void package_free(Package* p) {
     buf_free(&p->pic1);
     x3dsx_free(&p->x3ds);
     buf_free(&p->smdh);
+    buf_free(&p->forwarder);
+    buf_free(&p->banner);
     buf_free(&p->eboot);
     buf_free(&p->sfo);
     buf_free(&p->vpk.icon0);
@@ -645,7 +699,8 @@ char* package_done_message(const char* out) {
                            out);
         case TARGET_3DS:
             return str_fmt("Done!\n\nIf you picked your SD card, OMORI is ready to play from the Homebrew Launcher. Otherwise copy the 3ds folder from\n%s\nto "
-                           "the root of your SD card.",
+                           "the root of your SD card.\n\nTo start OMORI from the HOME Menu instead, install 3ds/omori/omori.cia once with FBI. It needs "
+                           "Luma3DS and opens the omori.3dsx on your SD card, so leave that where it is.",
                            out);
         default:
             return str_fmt("Done!\n\nIf you picked your memory stick, it is ready to play. Otherwise copy the PSP folder from\n%s\nto the root of your memory "

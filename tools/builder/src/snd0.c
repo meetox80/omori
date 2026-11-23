@@ -44,7 +44,7 @@ static uint32_t gcd(uint32_t a, uint32_t b) {
     return a;
 }
 
-static float* decode(const Buf* ogg, uint32_t* rate, size_t* frames) {
+static float* decode(const Buf* ogg, uint32_t to, size_t limit, uint32_t* rate, size_t* frames) {
     int err = 0;
     stb_vorbis* v = stb_vorbis_open_memory(ogg->data, (int)ogg->len, &err, NULL);
     if (!v) return NULL;
@@ -54,7 +54,7 @@ static float* decode(const Buf* ogg, uint32_t* rate, size_t* frames) {
         stb_vorbis_close(v);
         return NULL;
     }
-    size_t want = (size_t)((uint64_t)LENGTH * info.sample_rate / RATE) + 1024;
+    size_t want = (size_t)((uint64_t)limit * info.sample_rate / to) + 1024;
     float* pcm = xmalloc(want * 2 * sizeof(float));
     float* chunk = xmalloc(4096 * (size_t)ch * sizeof(float));
     size_t have = 0;
@@ -73,10 +73,10 @@ static float* decode(const Buf* ogg, uint32_t* rate, size_t* frames) {
     return pcm;
 }
 
-static float* resample(const float* in, size_t frames, uint32_t from, size_t count) {
-    uint32_t g = gcd(RATE, from);
-    uint32_t up = RATE / g, down = from / g;
-    double fc = CUTOFF * (from > RATE ? (double)RATE / from : 1.0);
+static float* resample(const float* in, size_t frames, uint32_t from, uint32_t to, size_t count) {
+    uint32_t g = gcd(to, from);
+    uint32_t up = to / g, down = from / g;
+    double fc = CUTOFF * (from > to ? (double)to / from : 1.0);
     int half = (int)ceil(ZEROS / (2.0 * fc));
     int taps = half * 2;
     float* kernel = xmalloc((size_t)up * (size_t)taps * sizeof(float));
@@ -123,7 +123,7 @@ static void shape(float* pcm, size_t count) {
     }
 }
 
-int snd0_build(Game* g, Buf* out) {
+float* title_music_pcm(Game* g, uint32_t rate, size_t limit, size_t* count) {
     Node* sys = game_json_opt(g, "data/System.json");
     const char* name = sys ? node_strv(node_get(node_get(sys, "titleBgm"), "name")) : NULL;
     char* path = name && *name ? str_fmt("audio/bgm/%s.ogg", name) : NULL;
@@ -135,19 +135,27 @@ int snd0_build(Game* g, Buf* out) {
     size_t frames = 0;
     float* pcm = NULL;
     if (ok) {
-        pcm = decode(&ogg, &from, &frames);
+        pcm = decode(&ogg, rate, limit, &from, &frames);
         ok = pcm && frames > 0;
     }
     buf_free(&ogg);
+    float* wave = NULL;
     if (ok) {
-        size_t count = (size_t)((uint64_t)frames * RATE / from);
-        if (count > LENGTH) count = LENGTH;
-        float* wave = resample(pcm, frames, from, count);
-        shape(wave, count);
-        int looped = count > LOOP_END;
-        ok = atrac3_encode(wave, count, RATE, looped ? LOOP_START : -1, looped ? LOOP_END : -1, out);
-        free(wave);
+        *count = (size_t)((uint64_t)frames * rate / from);
+        if (*count > limit) *count = limit;
+        wave = resample(pcm, frames, from, rate, *count);
     }
     free(pcm);
+    return wave;
+}
+
+int snd0_build(Game* g, Buf* out) {
+    size_t count = 0;
+    float* wave = title_music_pcm(g, RATE, LENGTH, &count);
+    if (!wave) return 0;
+    shape(wave, count);
+    int looped = count > LOOP_END;
+    int ok = atrac3_encode(wave, count, RATE, looped ? LOOP_START : -1, looped ? LOOP_END : -1, out);
+    free(wave);
     return ok;
 }

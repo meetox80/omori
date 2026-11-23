@@ -3,7 +3,7 @@ import { MemoryDirectory, SyncAccessFile, WasiProcess } from "./wasi.js";
 const OUTPUTS = {
   psp: { name: "EBOOT.PBP", path: "EBOOT.PBP", args: ["-o", "/out/EBOOT.PBP"], extras: [] },
   vita: { name: "omori.pak", path: "data/OMORI/omori.pak", args: ["--target", "vita", "-o", "/out"], extras: ["OMORI.vpk"] },
-  "3ds": { name: "omori.3dsx", path: "omori.3dsx", args: ["--target", "3ds", "-o", "/out/omori.3dsx"], extras: [] },
+  "3ds": { name: "omori.3dsx", path: "omori.3dsx", args: ["--target", "3ds", "-o", "/out/omori.3dsx"], extras: [], optional: ["omori.cia"] },
   wii: {
     name: "omori.pak",
     path: "apps/omori/omori.pak",
@@ -105,6 +105,10 @@ async function build({ module, gameFiles, env, movies, target, engine }) {
         return;
       }
       extras.push({ path: name, blob: new Blob([node.contents()]) });
+    }
+    for (const name of spec.optional ?? []) {
+      const node = root.find(["out", ...name.split("/")]);
+      if (node) extras.push({ path: name, blob: new Blob([node.contents()]) });
     }
     for (let part = 1; spec.split; part++) {
       const name = `${spec.path}.${part}`;

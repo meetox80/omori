@@ -20,7 +20,7 @@ set(GEN ${CMAKE_CURRENT_BINARY_DIR}/gen)
 file(MAKE_DIRECTORY ${GEN})
 set(ENGINE_BLOBS)
 foreach(pair "psp/EBOOT.PBP:embedded_psp_eboot" "vita/eboot.bin:embedded_vita_eboot" "vita/param.sfo:embedded_vita_sfo"
-             "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "wiiu/omori.rpx:embedded_wiiu_rpx" "ps3/EBOOT.BIN:embedded_ps3_eboot"
+             "3ds/omori.3dsx:embedded_3ds_engine" "3ds/omori-forwarder.elf:embedded_3ds_forwarder" "wii/omori.dol:embedded_wii_dol" "wiiu/omori.rpx:embedded_wiiu_rpx" "ps3/EBOOT.BIN:embedded_ps3_eboot"
              "ps2/OMORI.ELF:embedded_ps2_elf" "xenon/xenon.elf:embedded_xenon_elf")
   string(REPLACE ":" ";" parts ${pair})
   list(GET parts 0 engine_file)
@@ -48,6 +48,11 @@ foreach(pair "NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallba
     DEPENDS omori_embed ${FALLBACK_DIR}/${font_file})
   list(APPEND FALLBACK_BLOBS ${GEN}/${font_sym}.c)
 endforeach()
+
+add_custom_command(OUTPUT ${GEN}/embedded_banner_template.c
+  COMMAND omori_embed ${CMAKE_CURRENT_SOURCE_DIR}/assets/banner.bin ${GEN}/embedded_banner_template.c embedded_banner_template
+  DEPENDS omori_embed ${CMAKE_CURRENT_SOURCE_DIR}/assets/banner.bin)
+list(APPEND FALLBACK_BLOBS ${GEN}/embedded_banner_template.c)
 
 file(GLOB_RECURSE VPX_SRC CONFIGURE_DEPENDS third_party/libvpx/*.c)
 add_library(omori_vpx STATIC ${VPX_SRC})

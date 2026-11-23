@@ -115,7 +115,7 @@ const BUILDER_FILE = "omori-builder.wasm";
 const ENGINES = {
   psp: { console: "PSP", files: ["EBOOT.PBP"] },
   vita: { console: "PS Vita", files: ["eboot.bin", "param.sfo"] },
-  "3ds": { console: "3DS", files: ["omori.3dsx"] },
+  "3ds": { console: "3DS", files: ["omori.3dsx", "omori-forwarder.elf"] },
   wii: { console: "Wii", files: ["omori.dol"] },
   wiiu: { console: "Wii U", files: ["omori.rpx"] },
   ps3: { console: "PS3", files: ["EBOOT.BIN"] },

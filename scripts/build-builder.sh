@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 zig="${ZIG:-$root/_deps/zig/zig}"
 engines_dir="${ENGINES_DIR:-$root/build}"
 engines=("psp/EBOOT.PBP:embedded_psp_eboot" "vita/eboot.bin:embedded_vita_eboot" "vita/param.sfo:embedded_vita_sfo"
-  "3ds/omori.3dsx:embedded_3ds_engine" "wii/omori.dol:embedded_wii_dol" "wiiu/omori.rpx:embedded_wiiu_rpx" "ps3/EBOOT.BIN:embedded_ps3_eboot" "ps2/OMORI.ELF:embedded_ps2_elf"
+  "3ds/omori.3dsx:embedded_3ds_engine" "3ds/omori-forwarder.elf:embedded_3ds_forwarder" "wii/omori.dol:embedded_wii_dol" "wiiu/omori.rpx:embedded_wiiu_rpx" "ps3/EBOOT.BIN:embedded_ps3_eboot" "ps2/OMORI.ELF:embedded_ps2_elf"
   "xenon/xenon.elf:embedded_xenon_elf")
 src="$root/tools/builder"
 shared="$root/shared"
@@ -25,6 +25,7 @@ fonts=("NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallback.ttf
 for pair in "${fonts[@]}"; do
   "$gen/embed" "$src/third_party/fallback_fonts/${pair%%:*}" "$gen/${pair##*:}.c" "${pair##*:}"
 done
+"$gen/embed" "$src/assets/banner.bin" "$gen/embedded_banner_template.c" embedded_banner_template
 
 builder_flags=(-D_DEFAULT_SOURCE -D_FILE_OFFSET_BITS=64 -DMINIZ_NO_STDIO -DOMORI_BUILDER=1 -I"$src/src" -I"$src/third_party" -I"$shared"
   -I"$engine_src" -I"$src/third_party/libvpx" -I"$src/third_party/opus/include")

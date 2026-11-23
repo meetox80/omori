@@ -731,6 +731,31 @@ static int title_art(Game* g, Node* atlas, TitleArt* t) {
     return ok;
 }
 
+static int place_frame(Image* canvas, Game* g, Node* atlas, const char* key, int frame, int fw, int fh, int x, int y) {
+    int ox, oy;
+    Image* pic = atlas_placed(g, atlas, key, &ox, &oy);
+    if (!pic) return 0;
+    Image* cell = img_new(fw, fh);
+    img_alpha_composite(cell, pic, ox - frame * fw, oy);
+    img_alpha_composite(canvas, cell, x, y);
+    img_free(cell);
+    img_free(pic);
+    return 1;
+}
+
+Image* assets_title_frame(Game* g, Node* atlas, int omori_frame, int lines_frame, int w, int h) {
+    const int sx = (480 * w / h - 640) / 2, tx = 167, ty = -30;
+    Image* scene = white_canvas(640 + sx * 2, 480);
+    int ok = place_frame(scene, g, atlas, "img/pictures/OMO_WS.png", omori_frame, 306, 350, sx + 167, 130);
+    ok = ok && place(scene, g, atlas, "img/pictures/OMO_BULB_WS.png", sx + tx + 120, ty - 2, 0, 0);
+    ok = ok && place_frame(scene, g, atlas, "img/pictures/OMO_BULB_WS_LINES.png", lines_frame, 68, 150, sx + tx + 120, ty);
+    ok = ok && place(scene, g, atlas, "img/pictures/OMO_STRING_WS.png", sx + tx + 120, ty - 282, 0, 300);
+    ok = ok && place(scene, g, atlas, "img/pictures/OMO_TITLE_WS.png", sx + tx, ty, 0, 0);
+    Image* out = ok ? fit_rgb(scene, w, h, 0xFFFFFF) : NULL;
+    img_free(scene);
+    return out;
+}
+
 void assets_build_icons(Game* g, Node* atlas, Buf* icon0, Buf* pic1) {
     TitleArt t;
     if (!title_art(g, atlas, &t)) return;

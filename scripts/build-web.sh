@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 sdk="${WASI_SDK:-$root/_deps/wasi-sdk}"
 tailwind="${TAILWIND:-$root/_deps/tailwindcss}"
 engines_dir="${ENGINES_DIR:-$root/build}"
-engines=("psp/EBOOT.PBP:psp" "vita/eboot.bin:vita" "vita/param.sfo:vita" "3ds/omori.3dsx:3ds" "wii/omori.dol:wii" "wiiu/omori.rpx:wiiu" "ps3/EBOOT.BIN:ps3"
+engines=("psp/EBOOT.PBP:psp" "vita/eboot.bin:vita" "vita/param.sfo:vita" "3ds/omori.3dsx:3ds" "3ds/omori-forwarder.elf:3ds" "wii/omori.dol:wii" "wiiu/omori.rpx:wiiu" "ps3/EBOOT.BIN:ps3"
   "ps2/OMORI.ELF:ps2" "xenon/xenon.elf:xbox360")
 src="$root/tools/builder"
 shared="$root/shared"
@@ -27,6 +27,7 @@ fonts=("NotoSans-Fallback.ttf:fallback_noto_sans" "NotoSansSymbols2-Fallback.ttf
 for pair in "${fonts[@]}"; do
   "$gen/embed" "$src/third_party/fallback_fonts/${pair%%:*}" "$gen/${pair##*:}.c" "${pair##*:}"
 done
+"$gen/embed" "$src/assets/banner.bin" "$gen/embedded_banner_template.c" embedded_banner_template
 
 target=(--target=wasm32-wasip1 --sysroot="$sdk/share/wasi-sysroot" -O2 -msimd128 -D_WASI_EMULATED_PROCESS_CLOCKS)
 eh=(-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false)
@@ -55,7 +56,7 @@ compile() {
 while IFS= read -r f; do compile "$f" "$sdk/bin/clang" "${vpx_flags[@]}"; done <<< "$(find "$src/third_party/libvpx" -name '*.c' | sort)"
 while IFS= read -r f; do compile "$f" "$sdk/bin/clang" "${opus_flags[@]}"; done <<< "$(find "$src/third_party/opus" -name '*.c' | sort)"
 for f in "$src"/src/*.c "$src/third_party/miniz.c" "$shared"/rx.c "$shared"/js.c "$shared"/node.c "$shared"/buf.c "$shared"/script.c \
-  "$gen"/fallback_noto_*.c; do
+  "$gen"/fallback_noto_*.c "$gen"/embedded_banner_template.c; do
   quiet=()
   [ "${f##*/}" = stb_vorbis_impl.c ] && quiet=(-w)
   compile "$f" "$sdk/bin/clang" -std=c99 "${sjlj[@]}" "${builder_flags[@]}" "${quiet[@]}"

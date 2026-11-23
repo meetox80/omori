@@ -2,6 +2,7 @@
 #define TB_ASSETS_H
 
 #include "game.h"
+#include "image.h"
 #include "node.h"
 #include "pack.h"
 
@@ -16,5 +17,6 @@ int assets_build_hbc_icon(Game* g, Node* atlas, Buf* png);
 int assets_build_wiiu_art(Game* g, Node* atlas, Buf* icon, Buf* tv, Buf* drc);
 int assets_build_ps3_art(Game* g, Node* atlas, Buf* icon0, Buf* pic1);
 int assets_build_ps2_icon(Game* g, Node* atlas, Buf* sys, Buf* icn);
+Image* assets_title_frame(Game* g, Node* atlas, int omori_frame, int lines_frame, int w, int h);
 
 #endif

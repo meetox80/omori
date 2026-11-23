@@ -10,7 +10,7 @@ const ui = Object.fromEntries(
   [
     "drop", "pick-folder", "pick-zip", "game-empty", "game-key", "key-drop", "pick-vdf", "cancel-key", "game-ready", "game-summary", "game-error", "replace-game", "remove-game",
     "import-status", "import-bar", "import-text", "build", "build-status", "build-bar", "build-text",
-    "log-box", "log", "build-error", "step-done", "download-zip", "download-eboot", "download-vita", "download-vpk", "download-3ds", "download-3dsx", "download-wii", "download-wiiu", "download-ps3", "download-ps2", "download-xbox360",
+    "log-box", "log", "build-error", "step-done", "download-zip", "download-eboot", "download-vita", "download-vpk", "download-3ds", "download-3dsx", "download-cia", "download-wii", "download-wiiu", "download-ps3", "download-ps2", "download-xbox360",
   ].map((id) => [id.replace(/-(\w)/g, (_, c) => c.toUpperCase()), document.getElementById(id)]),
 );
 
@@ -174,6 +174,7 @@ function finishBuild(result) {
     state.output = { ...result.output, target: state.target };
     const megabytes = (result.output.size / 1048576).toFixed(1);
     showBuildProgress(1, `Done in ${Math.round(result.seconds)} seconds: ${megabytes} MB`, false);
+    ui.downloadCia.hidden = !ciaBlob();
     ui.stepDone.hidden = false;
     theme.celebrate();
     ui.stepDone.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -329,13 +330,24 @@ function downloadVpk() {
   download(vpkBlob(), "OMORI.vpk");
 }
 
+function ciaBlob() {
+  return state.output?.extras?.find((extra) => extra.path === "omori.cia")?.blob;
+}
+
 async function download3ds() {
   const { crc } = state.output;
-  download(storedZip([{ path: "3ds/omori/omori.3dsx", blob: await outputFile(), crc }]), "OMORI-3DS.zip");
+  const entries = [{ path: "3ds/omori/omori.3dsx", blob: await outputFile(), crc }];
+  const cia = ciaBlob();
+  if (cia) entries.push({ path: "3ds/omori/omori.cia", blob: cia, crc: await blobCrc(cia) });
+  download(storedZip(entries), "OMORI-3DS.zip");
 }
 
 async function download3dsx() {
   download(await outputFile(), "omori.3dsx");
+}
+
+function downloadCia() {
+  download(ciaBlob(), "omori.cia");
 }
 
 async function downloadPs3() {
@@ -422,6 +434,7 @@ function setUpControls() {
   ui.downloadVpk.addEventListener("click", downloadVpk);
   ui.download3ds.addEventListener("click", download3ds);
   ui.download3dsx.addEventListener("click", download3dsx);
+  ui.downloadCia.addEventListener("click", downloadCia);
   ui.downloadWii.addEventListener("click", downloadWii);
   ui.downloadWiiu.addEventListener("click", downloadWiiu);
   ui.downloadPs3.addEventListener("click", downloadPs3);
