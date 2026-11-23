@@ -87,23 +87,7 @@ static std::string dir_of(const std::string& path) {
     return slash == std::string::npos ? std::string() : path.substr(0, slash);
 }
 
-static unsigned long long restore_homebrew_title(int argc, char** argv) {
-    static const char prefix[] = "omori-forwarder:restore=";
-    s64 luma = 0;
-    if (R_FAILED(svcGetSystemInfo(&luma, 0x10000, 0))) return 0;
-    for (int i = 1; i < argc; i++) {
-        if (!argv[i] || std::strncmp(argv[i], prefix, sizeof(prefix) - 1) != 0) continue;
-        char* end = nullptr;
-        unsigned long long tid = std::strtoull(argv[i] + sizeof(prefix) - 1, &end, 16);
-        if (!end || *end != '\0' || !tid) continue;
-        *(volatile u64*)(OS_SHAREDCFG_VADDR + 0x808) = tid;
-        return tid;
-    }
-    return 0;
-}
-
 bool init(int argc, char** argv) {
-    unsigned long long restored = restore_homebrew_title(argc, argv);
     osSetSpeedupEnable(true);
     APT_SetAppCpuTimeLimit(80);
     bool n3ds = false;
@@ -135,7 +119,6 @@ bool init(int argc, char** argv) {
     }
     log("omori for 3ds: %s, heap %u KB, linear %u KB", g_new3ds ? "new 3ds" : "old 3ds", (unsigned)(__ctru_heap_size / 1024),
         (unsigned)(__ctru_linear_heap_size / 1024));
-    if (restored) log("started from the HOME Menu, homebrew title %016llX restored", restored);
     fs::init_data(g_opt.data_root);
     gfx::init();
     return true;

@@ -1,10 +1,11 @@
 #include <3ds.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 
 #define TARGET "/3ds/omori/omori.3dsx"
-#define RESTORE "omori-forwarder:restore="
+#define HOMEBREW_LAUNCHER 0x000400000D921E00ULL
 
 typedef struct {
     u64 current;
@@ -26,6 +27,32 @@ static Result hbldr_send(Handle port, u32 command, u32 buffer, const void* data,
     return R_SUCCEEDED(r) ? (Result)cmd[1] : r;
 }
 
+static bool title_installed(u64 tid) {
+    if ((tid >> 32) != 0x00040000) return true;
+    bool found = false;
+    DIR* top = opendir("sdmc:/Nintendo 3DS");
+    if (!top) return false;
+    struct dirent* a;
+    while (!found && (a = readdir(top))) {
+        if (strlen(a->d_name) != 32) continue;
+        char dir[288];
+        snprintf(dir, sizeof(dir), "sdmc:/Nintendo 3DS/%s", a->d_name);
+        DIR* mid = opendir(dir);
+        if (!mid) continue;
+        struct dirent* b;
+        while (!found && (b = readdir(mid))) {
+            if (strlen(b->d_name) != 32) continue;
+            char path[640];
+            struct stat st;
+            snprintf(path, sizeof(path), "%s/%s/title/%08lx/%08lx/content", dir, b->d_name, (unsigned long)(tid >> 32), (unsigned long)(tid & 0xFFFFFFFF));
+            found = stat(path, &st) == 0;
+        }
+        closedir(mid);
+    }
+    closedir(top);
+    return found;
+}
+
 static Result forward(const char** problem) {
     struct stat st;
     if (stat("sdmc:" TARGET, &st) != 0) {
@@ -37,24 +64,26 @@ static Result forward(const char** problem) {
         *problem = "This needs Luma3DS to start OMORI.\n\nYou can still start omori.3dsx from\nthe Homebrew Launcher.";
         return -1;
     }
-    u64 self = 0;
-    Result r = APT_GetProgramID(&self);
-    if (R_FAILED(r)) return r;
+    u64 hb = LUMA->selected, self = 0;
+    APT_GetProgramID(&self);
+    if (!hb || hb == self) hb = HOMEBREW_LAUNCHER;
+    FS_MediaType media = (hb >> 32) == 0x00040000 ? MEDIATYPE_SD : MEDIATYPE_NAND;
+    if (!title_installed(hb)) {
+        *problem = "This needs the Homebrew Launcher\nloader CIA installed.\n\nYou can still start omori.3dsx from\nthe Homebrew Launcher.";
+        return -1;
+    }
     Handle port;
-    r = svcConnectToPort(&port, "hb:ldr");
+    Result r = svcConnectToPort(&port, "hb:ldr");
     if (R_FAILED(r)) return r;
     r = hbldr_send(port, 2, 0, g_target, sizeof(g_target));
     if (R_SUCCEEDED(r)) {
-        char* p = (char*)&g_args[1];
-        g_args[0] = 2;
-        p += sprintf(p, "sdmc:%s", TARGET) + 1;
-        sprintf(p, RESTORE "%016llX", (unsigned long long)LUMA->selected);
+        g_args[0] = 1;
+        sprintf((char*)&g_args[1], "sdmc:%s", TARGET);
         r = hbldr_send(port, 3, 1, g_args, sizeof(g_args));
     }
     svcCloseHandle(port);
     if (R_FAILED(r)) return r;
-    LUMA->selected = self;
-    aptSetChainloader(self, MEDIATYPE_SD);
+    aptSetChainloader(hb, media);
     return 0;
 }
 
