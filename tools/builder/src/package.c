@@ -700,7 +700,7 @@ char* package_done_message(const char* out) {
         case TARGET_3DS:
             return str_fmt("Done!\n\nIf you picked your SD card, OMORI is ready to play from the Homebrew Launcher. Otherwise copy the 3ds folder from\n%s\nto "
                            "the root of your SD card.\n\nTo start OMORI from the HOME Menu instead, install 3ds/omori/omori.cia once with FBI. It needs "
-                           "Luma3DS and opens the omori.3dsx on your SD card, so leave that where it is.",
+                           "Luma3DS and the Homebrew Launcher loader CIA, and opens the omori.3dsx on your SD card, so leave that where it is.",
                            out);
         default:
             return str_fmt("Done!\n\nIf you picked your memory stick, it is ready to play. Otherwise copy the PSP folder from\n%s\nto the root of your memory "
