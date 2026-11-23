@@ -142,7 +142,8 @@ void bind_battle_manager() {
     field("_escapeByCommand", [&s]() { return Val::boolean(s.escape_by_command); }, [&s](const Val& v) { s.escape_by_command = v.truthy(); });
     method("queueForceAction", [](Args& a) {
         GameBattler* u = battler_of(js::arg(a, 0));
-        if (u) battle::queue_force_action(u, js::arg_int(a, 1), js::arg(a, 2), true);
+        const js::Val& clear = js::arg(a, 3);
+        if (u) battle::queue_force_action(u, js::arg_int(a, 1), js::arg(a, 2), clear.is_undef() || clear.truthy());
         return Val();
     });
     method("queueForceScriptCall", [](Args& a) {
