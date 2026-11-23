@@ -115,7 +115,7 @@ static void put_texture(uint8_t* dst, const Image* img) {
         for (int x = 0; x < w; x++) {
             const uint8_t* p = img->px + ((size_t)y * w + x) * 4;
             int t = bayer[y & 3][x & 3];
-            uint16_t v = (uint16_t)(dither4(p[0], t) << 12 | dither4(p[1], t) << 8 | dither4(p[2], t) << 4 | 0xF);
+            uint16_t v = (uint16_t)(dither4(p[0], t) << 12 | dither4(p[1], t) << 8 | dither4(p[2], t) << 4 | (p[3] * 15 + 127) / 255);
             int m = 0;
             for (int i = 0; i < 3; i++) m |= ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1);
             le16(dst + (((size_t)(y >> 3) * (size_t)(w >> 3) + (size_t)(x >> 3)) * 64 + (size_t)m) * 2, v);

@@ -633,6 +633,19 @@ static Image* fit_rgb(const Image* src, int w, int h, uint32_t bg) {
     return canvas;
 }
 
+static Image* fit_cutout(const Image* src, int w, int h) {
+    Image* pm = img_clone(src);
+    img_premultiply(pm);
+    Image* rs = img_resize(pm, w, h, FILTER_LANCZOS);
+    img_free(pm);
+    for (int i = 0; i < w * h; i++) {
+        uint8_t* p = rs->px + (size_t)i * 4;
+        int a = p[3];
+        for (int k = 0; k < 3; k++) p[k] = a ? (uint8_t)((p[k] > a ? a : p[k]) * 255 / a) : 0;
+    }
+    return rs;
+}
+
 static Image* atlas_virtual(Game* g, Node* atlas, const char* key) {
     Node* e = atlas ? node_get(node_get(atlas, "source"), key) : NULL;
     if (!e) return NULL;
@@ -745,13 +758,13 @@ static int place_cell(Image* canvas, Game* g, Node* atlas, const char* key, int 
 
 Image* assets_title_frame(Game* g, Node* atlas, int w, int h) {
     const int sx = (480 * w / h - 640) / 2, tx = 167, ty = -30;
-    Image* scene = white_canvas(640 + sx * 2, 480);
+    Image* scene = img_new(640 + sx * 2, 480);
     int ok = place_cell(scene, g, atlas, "img/pictures/OMO_WS.png", 306, 350, sx + 167, 130);
     ok = ok && place(scene, g, atlas, "img/pictures/OMO_BULB_WS.png", sx + tx + 120, ty - 2, 0, 0);
     ok = ok && place_cell(scene, g, atlas, "img/pictures/OMO_BULB_WS_LINES.png", 68, 150, sx + tx + 120, ty);
     ok = ok && place(scene, g, atlas, "img/pictures/OMO_STRING_WS.png", sx + tx + 120, ty - 282, 0, 300);
     ok = ok && place(scene, g, atlas, "img/pictures/OMO_TITLE_WS.png", sx + tx, ty, 0, 0);
-    Image* out = ok ? fit_rgb(scene, w, h, 0xFFFFFF) : NULL;
+    Image* out = ok ? fit_cutout(scene, w, h) : NULL;
     img_free(scene);
     return out;
 }
