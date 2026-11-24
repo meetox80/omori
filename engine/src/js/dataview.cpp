@@ -33,11 +33,48 @@ std::unordered_map<const ::Value*, Val>& array_cache() {
 
 HostClass& view_class();
 
+Val note_meta(const char* s, size_t len) {
+    Val meta = make_object();
+    size_t pos = 0;
+    while (pos < len) {
+        if (s[pos] != '<') {
+            pos++;
+            continue;
+        }
+        size_t j = pos + 1;
+        while (j < len && s[j] != '<' && s[j] != '>' && s[j] != ':') j++;
+        if (j == pos + 1 || j >= len) {
+            pos++;
+            continue;
+        }
+        bool colon = s[j] == ':';
+        size_t e = j;
+        while (e < len && s[e] != '>') e++;
+        if (e >= len) {
+            pos++;
+            continue;
+        }
+        std::string tag(s + pos + 1, j - pos - 1);
+        meta.o->set(atom(tag.c_str()), colon ? Val::str(std::string(s + j + 1, e - j - 1)) : Val::boolean(true));
+        pos = e + 1;
+    }
+    return meta;
+}
+
 bool view_get(Vm&, Obj* self, uint32_t key, Val& out) {
     ViewNode* n = static_cast<ViewNode*>(self->ptr);
     if (Val* o = n->overlay.find(key)) {
         out = *o;
         return true;
+    }
+    static const uint32_t meta_key = atom("meta");
+    if (key == meta_key && !n->v->find("meta")) {
+        const ::Value* note = n->v->find("note");
+        if (note && note->is_str()) {
+            out = note_meta(note->s, note->n);
+            n->overlay.set(key, out);
+            return true;
+        }
     }
     const std::string& name = atom_name(key);
     const ::Value* f = n->v->find(name.c_str());
