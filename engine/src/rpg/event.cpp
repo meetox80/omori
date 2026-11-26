@@ -33,6 +33,8 @@ bool is_comment(const Value& cmd) {
 
 std::string comment_text(const Value& cmd) { return cmd["parameters"][0].string(); }
 
+bool is_wedding_spaceboy(int map_id, int event_id) { return map_id == 171 && event_id == 174; }
+
 }
 
 void GameSystem::remove_temporary_map_spawned_events(int map_id) {
@@ -900,7 +902,7 @@ void GameEvent::save_location() {
 }
 
 bool GameEvent::is_load_location() const {
-    if (!is_save_location()) return false;
+    if (!is_save_location() || is_wedding_spaceboy(game_map().map_id(), event_id())) return false;
     return game_system().is_saved_event_location(game_map().map_id(), event_id());
 }
 
