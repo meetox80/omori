@@ -1186,6 +1186,7 @@ void SpriteEnemy::create_main_sprite() {
     add_child(main_sprite);
     effect_target = main_sprite.get();
     sv_children_.push_back(main_sprite);
+    move_animations_to(main_sprite.get());
 }
 
 void SpriteEnemy::create_state_sprite() {
@@ -2128,7 +2129,10 @@ bool SpritesetBattle::is_popup_playing() {
 }
 
 void SpritesetBattle::remove_enemies() {
-    for (auto& s : enemy_sprites) battle_field->remove_child(s.get());
+    for (auto& s : enemy_sprites) {
+        s->remove_animations();
+        battle_field->remove_child(s.get());
+    }
 }
 
 void SpritesetBattle::refresh_enemy_reinforcements() {

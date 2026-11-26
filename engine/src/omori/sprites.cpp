@@ -53,6 +53,17 @@ void SpriteBase::update_animation_sprites() {
     }
 }
 
+void SpriteBase::move_animations_to(g2d::Sprite* target) {
+    for (auto& s : animation_sprites_) {
+        if (s->target() != this) s->set_target(target);
+    }
+}
+
+void SpriteBase::remove_animations() {
+    for (auto& s : animation_sprites_) s->remove();
+    animation_sprites_.clear();
+}
+
 void SpriteBase::start_animation(const Value* animation, bool mirror, double delay) {
     auto s = std::make_shared<SpriteAnimation>();
     s->setup(effect_target, animation, mirror, delay);

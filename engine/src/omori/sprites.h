@@ -20,6 +20,8 @@ public:
     void show_sprite();
     virtual void update_visibility();
     void update_animation_sprites();
+    void move_animations_to(g2d::Sprite* target);
+    void remove_animations();
     virtual void start_animation(const Value* animation, bool mirror, double delay);
     bool is_animation_playing() const { return !animation_sprites_.empty(); }
     virtual rpg::GameBattler* anim_battler() { return nullptr; }
@@ -43,6 +45,7 @@ public:
     bool is_playing() const { return duration_ > 0; }
     bool is_ready();
     g2d::Sprite* target() const { return target_; }
+    void set_target(g2d::Sprite* target) { target_ = target; }
     const Value* animation() const { return animation_; }
     static void begin_frame_checks();
 
