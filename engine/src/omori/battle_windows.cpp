@@ -1082,7 +1082,7 @@ void WindowBattleStatus::update_status_requests() {
 void WindowBattleStatus::show_actor_chain_skill_bubbles(rpg::GameActor* actor, const std::vector<std::pair<std::string, int>>& list) {
     if (!face_windows) return;
     for (auto& w : *face_windows) {
-        if (w->actor() == actor) {
+        if (actor && w->actor() == actor) {
             w->show_acs_bubbles(15);
             w->setup_acs_bubbles(list);
         } else {
